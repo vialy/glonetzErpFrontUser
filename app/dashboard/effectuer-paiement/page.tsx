@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2, CircleAlert, CreditCard, CircleCheck, ReceiptText, ShieldCheck, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,11 @@ const DEFAULT_SUMMARY: StudentTuitionSummary = {
   remainingAmount: 0,
 }
 
+const PENDING_AUTO_VERIFY_DELAY_MS = 5000
+const PENDING_AUTO_VERIFY_MAX_ATTEMPTS = 3
+
+type PendingVerifyResult = "success" | "failed" | "pending"
+
 function useFormatFcfa(locale: string) {
   return (value: number) =>
     `${new Intl.NumberFormat(locale === "en" ? "en-US" : "fr-FR").format(value)} F CFA`
@@ -65,6 +70,7 @@ export default function EffectuerPaiementPage() {
   const [pendingOpen, setPendingOpen] = useState(false)
   const [pendingMethod, setPendingMethod] = useState<PaymentMethod>("orange_money")
   const [checkingStatus, setCheckingStatus] = useState(false)
+  const verifyingRef = useRef(false)
   const [loading, setLoading] = useState(() => !hasCached(CACHE_KEYS.paymentsSummary))
   const [error, setError] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -180,35 +186,94 @@ export default function EffectuerPaiementPage() {
     }
   }
 
-  const checkPendingStatus = async () => {
-    if (!lastPayment || checkingStatus) return
-    setCheckingStatus(true)
-    try {
-      const { payment: updated, outcome } = await paymentsService.verifyPayment(lastPayment.paymentId)
-      setLastPayment(updated)
-      setSummary(await paymentsService.getSummary())
-      window.dispatchEvent(new Event("student-payments-updated"))
-
-      if (outcome === "failed" || outcome === "cancelled" || updated.status === "failed" || updated.status === "cancelled") {
+  const applyPendingVerifyResult = useCallback(
+    (updated: StudentPaymentRecord, outcome: string): PendingVerifyResult => {
+      if (
+        outcome === "failed" ||
+        outcome === "cancelled" ||
+        updated.status === "failed" ||
+        updated.status === "cancelled"
+      ) {
         setPendingOpen(false)
         setMessage({ type: "error", text: t("sp_err_failed") })
         redirectToPayments()
-      } else if (outcome === "settled" || outcome === "already_settled" || updated.status === "successful") {
+        return "failed"
+      }
+
+      if (outcome === "settled" || outcome === "already_settled" || updated.status === "successful") {
         setPendingOpen(false)
         setAmountInput("")
         setPhone("")
         setNote("")
         setMessage({ type: "success", text: t("sp_msg_ok") })
         redirectToPayments()
-      } else {
-        setMessage({ type: "pending", text: t("sp_msg_pending") })
+        return "success"
       }
-    } catch {
-      // On laisse l'utilisateur reessayer ; le statut reste en attente.
-    } finally {
-      setCheckingStatus(false)
-    }
+
+      setMessage({ type: "pending", text: t("sp_msg_pending") })
+      return "pending"
+    },
+    [t],
+  )
+
+  const verifyPendingPayment = useCallback(
+    async (paymentId: string): Promise<PendingVerifyResult | null> => {
+      if (verifyingRef.current) return null
+      verifyingRef.current = true
+      setCheckingStatus(true)
+      try {
+        const { payment: updated, outcome } = await paymentsService.verifyPayment(paymentId)
+        setLastPayment(updated)
+        setSummary(await paymentsService.getSummary())
+        window.dispatchEvent(new Event("student-payments-updated"))
+        return applyPendingVerifyResult(updated, outcome)
+      } catch {
+        return "pending"
+      } finally {
+        verifyingRef.current = false
+        setCheckingStatus(false)
+      }
+    },
+    [applyPendingVerifyResult],
+  )
+
+  const checkPendingStatus = async () => {
+    if (!lastPayment || checkingStatus) return
+    await verifyPendingPayment(lastPayment.paymentId)
   }
+
+  useEffect(() => {
+    if (!pendingOpen || !lastPayment?.paymentId || lastPayment.status !== "pending") return
+
+    const paymentId = lastPayment.paymentId
+    let cancelled = false
+    let attempts = 0
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = (result: PendingVerifyResult | null) => {
+      if (cancelled || result === "success" || result === "failed" || result === null) return
+      if (attempts >= PENDING_AUTO_VERIFY_MAX_ATTEMPTS) return
+      timeoutId = setTimeout(() => {
+        void runAttempt()
+      }, PENDING_AUTO_VERIFY_DELAY_MS)
+    }
+
+    const runAttempt = async () => {
+      if (cancelled || attempts >= PENDING_AUTO_VERIFY_MAX_ATTEMPTS) return
+      attempts += 1
+      const result = await verifyPendingPayment(paymentId)
+      scheduleNext(result)
+    }
+
+    timeoutId = setTimeout(() => {
+      void runAttempt()
+    }, PENDING_AUTO_VERIFY_DELAY_MS)
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [pendingOpen, lastPayment?.paymentId, lastPayment?.status, verifyPendingPayment])
 
   const downloadReceipt = async () => {
     if (!lastPayment) return
