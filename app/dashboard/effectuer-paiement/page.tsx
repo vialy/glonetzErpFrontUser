@@ -36,7 +36,7 @@ const DEFAULT_SUMMARY: StudentTuitionSummary = {
   remainingAmount: 0,
 }
 
-const PENDING_AUTO_VERIFY_DELAY_MS = 5000
+const PENDING_AUTO_VERIFY_DELAY_MS = 15000
 const PENDING_AUTO_VERIFY_MAX_ATTEMPTS = 3
 
 type PendingVerifyResult = "success" | "failed" | "pending"
