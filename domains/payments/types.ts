@@ -55,10 +55,23 @@ export interface ApplyClaimPaymentInput {
   note?: string
 }
 
+export type PaymentVerifyOutcome =
+  | "settled"
+  | "still_pending"
+  | "failed"
+  | "cancelled"
+  | "already_settled"
+  | "verify_failed"
+  | "no_gateway_reference"
+  | "verify_unavailable"
+  | "mismatch_type"
+  | "mismatch_amount"
+
 export interface PaymentsProvider {
   getSummary(): Promise<StudentTuitionSummary>
   getPayments(): Promise<StudentPaymentRecord[]>
   createPayment(input: CreatePaymentInput): Promise<StudentPaymentRecord>
+  verifyPayment(paymentId: string): Promise<{ payment: StudentPaymentRecord; outcome: PaymentVerifyOutcome }>
   applyClaimPayment(input: ApplyClaimPaymentInput): Promise<StudentPaymentRecord>
 }
 

@@ -184,25 +184,24 @@ export default function EffectuerPaiementPage() {
     if (!lastPayment || checkingStatus) return
     setCheckingStatus(true)
     try {
-      const payments = await paymentsService.getPayments()
-      const updated = payments.find((p) => p.paymentId === lastPayment.paymentId)
-      setSummary(await paymentsService.getSummary())
-      if (!updated) return
+      const { payment: updated, outcome } = await paymentsService.verifyPayment(lastPayment.paymentId)
       setLastPayment(updated)
-      if (updated.status === "failed" || updated.status === "cancelled") {
+      setSummary(await paymentsService.getSummary())
+      window.dispatchEvent(new Event("student-payments-updated"))
+
+      if (outcome === "failed" || outcome === "cancelled" || updated.status === "failed" || updated.status === "cancelled") {
         setPendingOpen(false)
         setMessage({ type: "error", text: t("sp_err_failed") })
         redirectToPayments()
-      } else if (updated.status === "pending") {
-        setMessage({ type: "pending", text: t("sp_msg_pending") })
-      } else {
-        // successful (ou statut absent) : paiement confirme.
+      } else if (outcome === "settled" || outcome === "already_settled" || updated.status === "successful") {
         setPendingOpen(false)
         setAmountInput("")
         setPhone("")
         setNote("")
         setMessage({ type: "success", text: t("sp_msg_ok") })
         redirectToPayments()
+      } else {
+        setMessage({ type: "pending", text: t("sp_msg_pending") })
       }
     } catch {
       // On laisse l'utilisateur reessayer ; le statut reste en attente.

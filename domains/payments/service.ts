@@ -2,7 +2,7 @@
 
 import { httpPaymentsProvider } from "@/domains/payments/providers/http"
 import { mockPaymentsProvider } from "@/domains/payments/providers/mock"
-import type { ApplyClaimPaymentInput, CreatePaymentInput, StudentPaymentRecord, StudentTuitionSummary } from "@/domains/payments/types"
+import type { ApplyClaimPaymentInput, CreatePaymentInput, PaymentVerifyOutcome, StudentPaymentRecord, StudentTuitionSummary } from "@/domains/payments/types"
 
 const dataProviderMode = process.env.NEXT_PUBLIC_DATA_PROVIDER ?? "mock"
 const provider = dataProviderMode === "api" ? httpPaymentsProvider : mockPaymentsProvider
@@ -29,6 +29,15 @@ export const paymentsService = {
       return httpPaymentsProvider.createPayment(input)
     }
     return provider.createPayment(input)
+  },
+  verifyPayment(paymentId: string): Promise<{ payment: StudentPaymentRecord; outcome: PaymentVerifyOutcome }> {
+    if (dataProviderMode === "api") {
+      return httpPaymentsProvider.verifyPayment(paymentId)
+    }
+    return Promise.resolve({
+      payment: { paymentId, amount: 0, currencyCode: "XAF", paymentMethod: "mtn_momo", createdAt: new Date().toISOString(), status: "successful" },
+      outcome: "settled",
+    })
   },
   applyClaimPayment(input: ApplyClaimPaymentInput): Promise<StudentPaymentRecord> {
     return provider.applyClaimPayment(input)

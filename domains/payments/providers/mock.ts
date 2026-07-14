@@ -16,5 +16,13 @@ export const mockPaymentsProvider: PaymentsProvider = {
   async applyClaimPayment(input) {
     return StudentPaymentsService.applyClaimPayment(input)
   },
+  async verifyPayment(paymentId) {
+    const payments = await StudentPaymentsService.getPayments()
+    const payment = payments.find((p) => p.paymentId === paymentId)
+    if (!payment) {
+      throw new Error("PAYMENT_NOT_FOUND")
+    }
+    return { payment: { ...payment, status: "successful" }, outcome: "settled" as const }
+  },
 }
 

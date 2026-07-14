@@ -236,6 +236,20 @@ export const httpPaymentsProvider: PaymentsProvider = {
       rethrowAsBusinessCode(error)
     }
   },
+  async verifyPayment(paymentId) {
+    try {
+      const data = await apiRequest<{ payment: ApiPayment; outcome: string }>(
+        `/users/payments/${encodeURIComponent(paymentId)}/verify`,
+        { method: "POST" },
+      )
+      return {
+        payment: mapPayment(data.payment),
+        outcome: data.outcome as import("@/domains/payments/types").PaymentVerifyOutcome,
+      }
+    } catch (error) {
+      rethrowAsBusinessCode(error)
+    }
+  },
   async applyClaimPayment(input: ApplyClaimPaymentInput) {
     try {
       return await apiRequest<StudentPaymentRecord>("/payments/claims/apply", { method: "POST", body: input as any })
