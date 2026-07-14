@@ -9,13 +9,18 @@ export interface ClaimRecord {
   id: string
   createdAt: string
   amount: number
-  paymentMethod: ClaimPaymentMethod
-  phoneNumber: string
-  transactionReference: string
+  /** Identifiant convivial (PAY-XXXX) du paiement contesté. */
+  paymentId?: string
+  /** Date du paiement signalé (ISO). */
+  paymentDate?: string
   description: string
   screenshotName?: string
   screenshotDataUrl?: string
   status: ClaimStatus
+  // Champs hérités (plus saisis) conservés optionnels pour l'affichage legacy.
+  paymentMethod?: ClaimPaymentMethod
+  phoneNumber?: string
+  transactionReference?: string
 }
 
 const STORAGE_KEY = "glonetz_claims_v1"
@@ -24,9 +29,8 @@ const DEMO_CLAIM: ClaimRecord = {
   id: "CLM-DEMO-001",
   createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   amount: 45_000,
-  paymentMethod: "mtn_momo",
-  phoneNumber: "+237677100099",
-  transactionReference: "MTN-DEMO-REF-001",
+  paymentId: "PAY-DEMO-001",
+  paymentDate: new Date(Date.now() - 172_800_000).toISOString(),
   description: "Exemple : paiement debite non visible — preuve jointe pour test admin.",
   screenshotName: "preuve-demo.png",
   screenshotDataUrl: DEMO_CLAIM_PROOF_DATA_URL,
@@ -64,17 +68,14 @@ export const ClaimsService = {
   },
 
   async create(input: {
-    amount: number
-    paymentMethod: ClaimPaymentMethod
-    phoneNumber: string
-    transactionReference: string
-    description: string
-    screenshotFile?: File | null
+    paymentId: string
+    paymentDate: string
+    description?: string
+    screenshotFile: File
   }): Promise<ClaimRecord> {
-    if (input.amount <= 0) throw new Error("INVALID_AMOUNT")
-    if (!input.phoneNumber.trim()) throw new Error("PHONE_REQUIRED")
-    if (!input.transactionReference.trim()) throw new Error("REFERENCE_REQUIRED")
-    if (!input.description.trim()) throw new Error("DESCRIPTION_REQUIRED")
+    if (!input.paymentId.trim()) throw new Error("PAYMENT_REQUIRED")
+    if (!input.paymentDate) throw new Error("DATE_REQUIRED")
+    if (!input.screenshotFile) throw new Error("PROOF_REQUIRED")
 
     let screenshotDataUrl: string | undefined
     let screenshotName: string | undefined
@@ -92,11 +93,12 @@ export const ClaimsService = {
     const claim: ClaimRecord = {
       id: `CLM-${Date.now()}`,
       createdAt: new Date().toISOString(),
-      amount: input.amount,
-      paymentMethod: input.paymentMethod,
-      phoneNumber: input.phoneNumber.trim(),
-      transactionReference: input.transactionReference.trim(),
-      description: input.description.trim(),
+      // Le montant réel provient du paiement lié (resynchronisé par le back-end v4) :
+      // indisponible en mock, donc 0 ici.
+      amount: 0,
+      paymentId: input.paymentId.trim(),
+      paymentDate: input.paymentDate,
+      description: input.description?.trim() ?? "",
       screenshotName,
       screenshotDataUrl,
       status: "en_attente",

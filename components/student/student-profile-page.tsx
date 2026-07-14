@@ -1,10 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CheckCircle2, CircleAlert, Download, FileClock, KeyRound, LogOut, Wallet } from "lucide-react"
 import Link from "next/link"
 import { StudentChangePinDialog } from "@/components/student/student-change-pin-dialog"
+import { StudentClassTimeline } from "@/components/student/student-class-timeline"
 import { StudentStatCard } from "@/components/student/student-stat-card"
+import { ScholarshipBanner } from "@/components/student/scholarship-banner"
+import { DataLoadError } from "@/components/student/data-load-error"
 import { MobileBackButton } from "@/components/mobile-back-button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -13,11 +16,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { certificatesService, type TrainingCertificate } from "@/domains/certificates"
-import { paymentsService, type StudentTuitionSummary } from "@/domains/payments"
+import { paymentsService, type StudentPaymentRecord, type StudentTuitionSummary } from "@/domains/payments"
 import { useAuth } from "@/hooks/use-auth"
 import { useStudentProfile } from "@/hooks/use-student-profile"
 import { useLocale } from "@/hooks/use-locale"
 import { downloadStudentCertificatePdf } from "@/lib/student-certificate-pdf"
+import { downloadStudentSchoolCertificatePdf } from "@/lib/student-school-certificate-pdf"
+import {
+  apiCertificateToStudentSchoolCertificate,
+  buildStudentSchoolCertificate,
+} from "@/lib/student-school-certificate"
+import { canStudentDownloadSchoolCertificate } from "@/lib/school-certificate-permissions"
+import { schoolCertificatesService, type StudentSchoolCertificateMine } from "@/domains/school-certificates"
+import { SchoolCertificateTemplateService } from "@/services/school-certificate-template.service"
 import { CACHE_KEYS, getCached, hasCached, setCached } from "@/lib/client-cache"
 
 const DEFAULT_SUMMARY: StudentTuitionSummary = {
@@ -58,43 +69,110 @@ export function StudentProfilePage() {
   const formatDateShort = (value: string) =>
     new Date(value).toLocaleDateString(locale === "en" ? "en-GB" : "fr-FR")
 
+  const [payments, setPayments] = useState<StudentPaymentRecord[]>(
+    () => getCached<StudentPaymentRecord[]>(CACHE_KEYS.paymentsList) ?? [],
+  )
   const [summary, setSummary] = useState<StudentTuitionSummary>(
     () => getCached<StudentTuitionSummary>(CACHE_KEYS.paymentsSummary) ?? DEFAULT_SUMMARY,
   )
   const [certificates, setCertificates] = useState<TrainingCertificate[]>(
     () => getCached<TrainingCertificate[]>(CACHE_KEYS.certificatesForStudent) ?? [],
   )
+  const [schoolCertMine, setSchoolCertMine] = useState<StudentSchoolCertificateMine | null>(null)
   const [financeLoading, setFinanceLoading] = useState(() => !hasCached(CACHE_KEYS.paymentsSummary))
+  const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
   // Données identité/classe issues de /users/me + /users/my-class ;
   // les montants financiers restent fournis par le résumé des paiements.
   const studentName = profile?.name || summary.studentName
   const className = studentClass?.title || summary.className
+  const schoolCertificate = useMemo(() => {
+    if (schoolCertMine?.certificate) {
+      return apiCertificateToStudentSchoolCertificate(schoolCertMine.certificate)
+    }
+    return buildStudentSchoolCertificate({
+      studentName,
+      studentClass,
+    })
+  }, [schoolCertMine, studentName, studentClass])
+  const tuitionFullyPaid = schoolCertMine?.tuitionFullyPaid ?? summary.remainingAmount <= 0
+  const schoolCertDecision = canStudentDownloadSchoolCertificate(schoolCertificate, tuitionFullyPaid, {
+    templateReady: schoolCertMine?.templateReady,
+    canDownload: schoolCertMine?.canDownload,
+  })
   const displayPhone = profile?.phone || phone
 
-  useEffect(() => {
-    const refresh = async () => {
-      try {
-        const next = await paymentsService.getSummary()
-        setSummary(next)
-        setCached(CACHE_KEYS.paymentsSummary, next)
-      } catch {
-        // Endpoint paiements pas encore connecte : valeurs par defaut conservees.
-      }
-      try {
-        const next = await certificatesService.getForStudent()
-        setCertificates(next)
-        setCached(CACHE_KEYS.certificatesForStudent, next)
-      } catch {
-        // Endpoint certificats pas encore connecte : liste vide conservee.
-      } finally {
-        setFinanceLoading(false)
-      }
+  const timelineLabels = useMemo(
+    () => ({
+      current: t("prof_timeline_current"),
+      completed: t("prof_timeline_completed"),
+      tuition: t("prof_timeline_tuition"),
+      paid: t("prof_timeline_paid"),
+      remaining: t("prof_timeline_remaining"),
+      payments: t("prof_timeline_payments"),
+      since: t("prof_timeline_since"),
+      until: t("prof_timeline_until"),
+      empty: t("prof_timeline_empty"),
+      totalPaid: t("prof_timeline_total_paid"),
+      catalogTuition: t("prof_timeline_catalog"),
+      scholarship: t("prof_timeline_scholarship"),
+      netDue: t("prof_timeline_net_due"),
+      scholarshipFull: t("prof_timeline_scholarship_full"),
+      scholarshipBadgeFull: t("prof_timeline_scholarship_badge_full"),
+      scholarshipBadgePartial: t("prof_timeline_scholarship_badge_partial"),
+    }),
+    [t],
+  )
+
+  const load = useCallback(async () => {
+    let summaryOk = false
+    try {
+      const next = await paymentsService.getSummary()
+      setSummary(next)
+      setCached(CACHE_KEYS.paymentsSummary, next)
+      summaryOk = true
+    } catch {
+      // Endpoint paiements pas encore connecte : valeurs par defaut conservees.
     }
-    void refresh()
-    window.addEventListener("student-payments-updated", refresh)
-    return () => window.removeEventListener("student-payments-updated", refresh)
+    try {
+      const nextPayments = await paymentsService.getPayments()
+      setPayments(nextPayments)
+      setCached(CACHE_KEYS.paymentsList, nextPayments)
+    } catch {
+      // Endpoint paiements pas encore connecte : liste conservee.
+    }
+    try {
+      const next = await certificatesService.getForStudent()
+      setCertificates(next)
+      setCached(CACHE_KEYS.certificatesForStudent, next)
+    } catch {
+      // Endpoint certificats pas encore connecte : liste vide conservee.
+    }
+    try {
+      const [mine] = await Promise.all([
+        schoolCertificatesService.getMine(),
+        SchoolCertificateTemplateService.fetch(),
+      ])
+      setSchoolCertMine(mine)
+    } catch {
+      // Certificat de scolarite indisponible : fallback local conserve.
+    }
+    setFinanceLoading(false)
+    setError(!summaryOk && !hasCached(CACHE_KEYS.paymentsSummary))
   }, [])
+
+  useEffect(() => {
+    void load()
+    window.addEventListener("student-payments-updated", load)
+    return () => window.removeEventListener("student-payments-updated", load)
+  }, [load])
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    await load()
+    setRetrying(false)
+  }, [load])
 
   useEffect(() => {
     setMustChangeBanner(mustChangePin)
@@ -105,18 +183,9 @@ export function StudentProfilePage() {
     return Math.min(100, Math.round((summary.amountPaid / summary.totalTuition) * 100))
   }, [summary.amountPaid, summary.totalTuition])
 
-  const pdfLabels = useMemo(
-    () => ({
-      title: t("prof_pdf_attest_title"),
-      certifies: t("prof_pdf_certifies"),
-      validated: t("prof_pdf_validated"),
-      program: t("prof_pdf_program"),
-      issue: t("prof_pdf_issue"),
-      ref: t("prof_pdf_ref"),
-      sign: t("prof_pdf_sign"),
-    }),
-    [t],
-  )
+  if (error) {
+    return <DataLoadError fullScreen onRetry={handleRetry} retrying={retrying} />
+  }
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -149,6 +218,8 @@ export function StudentProfilePage() {
         </Alert>
       ) : null}
 
+      {summary.isScholarshipHolder ? <ScholarshipBanner summary={summary} /> : null}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StudentStatCard
           icon={<Wallet className="size-4" />}
@@ -174,6 +245,14 @@ export function StudentProfilePage() {
           loading={financeLoading}
         />
       </div>
+
+      <StudentClassTimeline
+        formatFcfa={formatFcfa}
+        locale={locale === "en" ? "en-GB" : "fr-FR"}
+        title={t("prof_timeline_title")}
+        subtitle={t("prof_timeline_subtitle")}
+        labels={timelineLabels}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="border-primary/15 shadow-sm">
@@ -203,6 +282,41 @@ export function StudentProfilePage() {
 
         <Card className="border-primary/15 shadow-sm">
             <CardHeader className="pb-2">
+              <CardTitle className="text-base">Certificat de scolarité</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">{schoolCertificate.className}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {schoolCertDecision.allowed
+                      ? "Disponible au téléchargement"
+                      : schoolCertDecision.reason}
+                  </p>
+                </div>
+                {schoolCertDecision.allowed ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void (async () => {
+                        await SchoolCertificateTemplateService.fetch()
+                        await downloadStudentSchoolCertificatePdf(schoolCertificate)
+                      })()
+                    }
+                  >
+                    <Download className="mr-1 size-3.5" />
+                    Télécharger
+                  </Button>
+                ) : (
+                  <Badge variant="secondary">Indisponible</Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+        <Card className="border-primary/15 shadow-sm">
+            <CardHeader className="pb-2">
               <CardTitle className="text-base">{t("prof_certs_section")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
@@ -221,7 +335,7 @@ export function StudentProfilePage() {
                   >
                     <div>
                       <p className="text-sm font-medium">
-                        {t("prof_level_lbl")} {certificate.level}
+                        {t("prof_level_lbl")} {certificate.referenceLevel}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {available
@@ -235,15 +349,7 @@ export function StudentProfilePage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() =>
-                          void downloadStudentCertificatePdf({
-                            certificate,
-                            studentName,
-                            labels: pdfLabels,
-                            formatDateShort,
-                            locale,
-                          })
-                        }
+                        onClick={() => void downloadStudentCertificatePdf(certificate)}
                       >
                         <Download className="mr-1 size-3.5" />
                         {t("prof_cert_dl")}

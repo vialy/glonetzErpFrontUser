@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, Download, Info, ReceiptText, Wallet } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StudentStatCard } from "@/components/student/student-stat-card"
+import { ScholarshipBanner } from "@/components/student/scholarship-banner"
+import { DataLoadError } from "@/components/student/data-load-error"
 import {
   Select,
   SelectContent,
@@ -108,7 +110,7 @@ function buildPaymentLines(payments: StudentPaymentRecord[], claims: ClaimRecord
       id: claim.id,
       date: claim.createdAt,
       amount: claim.amount,
-      method: claim.paymentMethod,
+      method: claim.paymentMethod ?? "mtn_momo",
       status: claim.status === "rejetee" ? "rejetee" : claim.status === "resolue" ? "paye" : "en_cours",
       sourceType: "claim",
       transactionReference: claim.transactionReference,
@@ -153,41 +155,53 @@ export default function MesPaiementsPage() {
   const [loading, setLoading] = useState(
     () => !hasCached(CACHE_KEYS.paymentsSummary) && !hasCached(CACHE_KEYS.paymentsList),
   )
+  const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+
+  const load = useCallback(async () => {
+    // Donnée principale de la page : l'historique des paiements (avec la synthèse).
+    let mainOk = false
+    try {
+      const next = await paymentsService.getSummary()
+      setSummary(next)
+      setCached(CACHE_KEYS.paymentsSummary, next)
+    } catch {
+      // Resume de scolarite indisponible : valeurs par defaut conservees.
+    }
+    try {
+      const next = await paymentsService.getPayments()
+      setPayments(next)
+      setCached(CACHE_KEYS.paymentsList, next)
+      mainOk = true
+    } catch {
+      // Historique paiements indisponible.
+    }
+    try {
+      const next = await claimsService.getAll()
+      setClaims(next)
+      setCached(CACHE_KEYS.claimsAll, next)
+    } catch {
+      // Reclamations pas encore connectees au backend.
+    }
+    setLoading(false)
+    setError(!mainOk && !hasCached(CACHE_KEYS.paymentsList))
+  }, [])
 
   useEffect(() => {
-    const refresh = async () => {
-      try {
-        const next = await paymentsService.getSummary()
-        setSummary(next)
-        setCached(CACHE_KEYS.paymentsSummary, next)
-      } catch {
-        // Resume de scolarite indisponible : valeurs par defaut conservees.
-      }
-      try {
-        const next = await paymentsService.getPayments()
-        setPayments(next)
-        setCached(CACHE_KEYS.paymentsList, next)
-      } catch {
-        // Historique paiements indisponible.
-      }
-      try {
-        const next = await claimsService.getAll()
-        setClaims(next)
-        setCached(CACHE_KEYS.claimsAll, next)
-      } catch {
-        // Reclamations pas encore connectees au backend.
-      } finally {
-        setLoading(false)
-      }
-    }
-    void refresh()
-    window.addEventListener("student-payments-updated", refresh)
-    window.addEventListener("claims-updated", refresh)
+    void load()
+    window.addEventListener("student-payments-updated", load)
+    window.addEventListener("claims-updated", load)
     return () => {
-      window.removeEventListener("student-payments-updated", refresh)
-      window.removeEventListener("claims-updated", refresh)
+      window.removeEventListener("student-payments-updated", load)
+      window.removeEventListener("claims-updated", load)
     }
-  }, [])
+  }, [load])
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    await load()
+    setRetrying(false)
+  }, [load])
 
   const paymentLines = useMemo(() => buildPaymentLines(payments, claims), [payments, claims])
   const inProgressCount = useMemo(() => paymentLines.filter((p) => p.status === "en_cours").length, [paymentLines])
@@ -296,6 +310,10 @@ export default function MesPaiementsPage() {
     }
   }
 
+  if (error) {
+    return <DataLoadError fullScreen onRetry={handleRetry} retrying={retrying} />
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <MobileBackButton />
@@ -313,6 +331,8 @@ export default function MesPaiementsPage() {
           </p>
         </div>
       </div>
+
+      {summary.isScholarshipHolder ? <ScholarshipBanner summary={summary} /> : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StudentStatCard

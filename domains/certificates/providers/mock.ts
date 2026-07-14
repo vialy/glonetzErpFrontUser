@@ -16,5 +16,9 @@ export const mockCertificatesProvider: CertificatesProvider = {
   async getForStudent() {
     return CertificatesService.getForStudent()
   },
+  async getById(id) {
+    const all = CertificatesService.getForStudent()
+    return all.find((certificate) => certificate.id === id) ?? null
+  },
 }
 

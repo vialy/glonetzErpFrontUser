@@ -4,12 +4,12 @@ import type { StudentClass, StudentMe } from "@/types"
 import type { ProfileProvider } from "@/domains/profile/types"
 
 const mockClass: StudentClass = {
-  classId: "CLS-DEMO",
-  title: "A1 - Allemand debutant",
-  description: "Cours d'allemand niveau A1",
-  startDate: "2026-01-15T00:00:00.000Z",
-  endDate: "2026-06-15T00:00:00.000Z",
-  fee: 300000,
+  classId: "a2-apr-2025",
+  title: "A2 - Apr 2025",
+  description: "Cours d'allemand niveau A2",
+  startDate: "2025-04-01T00:00:00.000Z",
+  endDate: "2025-09-30T00:00:00.000Z",
+  fee: 170_000,
   currencyCode: "XAF",
   isActive: true,
 }

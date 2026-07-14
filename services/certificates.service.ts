@@ -1,20 +1,56 @@
 "use client"
 
-export interface TrainingCertificate {
-  id: string
-  level: string
-  status: "en_cours" | "disponible"
-  issuedAt?: string
-}
+import type { TrainingCertificate } from "@/domains/certificates/types"
 
 const STORAGE_KEY = "glonetz_certificates_v1"
 const ENROLLED_LEVEL_KEY = "glonetz_student_enrolled_level_v1"
 const LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
 
+const MOCK_CERTIFICATE_BASE = {
+  certificateKind: "formation" as const,
+  fullName: "Etudiant Demo",
+  dateOfBirth: "2000-01-15",
+  placeOfBirth: "Douala",
+  courseStartDate: "2025-01-06",
+  courseEndDate: "2025-06-30",
+  lessonUnits: 120,
+  lessonsAttended: 115,
+  courseInfo: "Complete level" as const,
+  evaluation: "Good" as const,
+  comments: "",
+  className: "A1 Matin",
+  timeSlot: "MO",
+  createdByRole: "admin" as const,
+  createdAt: "2025-11-08T10:30:00.000Z",
+}
+
 const DEFAULT_CERTIFICATES: TrainingCertificate[] = [
-  { id: "cert-a1", level: "A1", status: "disponible", issuedAt: "2025-11-08T10:30:00.000Z" },
-  { id: "cert-a2", level: "A2", status: "en_cours" },
-  { id: "cert-b1", level: "B1", status: "en_cours" },
+  {
+    ...MOCK_CERTIFICATE_BASE,
+    id: "cert-a1",
+    referenceNumber: "GLZ-2025-A1-0001",
+    referenceLevel: "A1",
+    status: "disponible",
+    issuedAt: "2025-11-08T10:30:00.000Z",
+  },
+  {
+    ...MOCK_CERTIFICATE_BASE,
+    id: "cert-a2",
+    referenceNumber: "GLZ-2025-A2-0001",
+    referenceLevel: "A2",
+    status: "en_attente",
+    className: "A2 Midi",
+    timeSlot: "MI",
+  },
+  {
+    ...MOCK_CERTIFICATE_BASE,
+    id: "cert-b1",
+    referenceNumber: "GLZ-2025-B1-0001",
+    referenceLevel: "B1",
+    status: "brouillon",
+    className: "B1 Soir",
+    timeSlot: "AB",
+  },
 ]
 
 function canUseStorage() {
@@ -50,12 +86,6 @@ export const CertificatesService = {
   },
 
   getForStudent(): TrainingCertificate[] {
-    const enrolledLevel = this.getEnrolledLevel()
-    const maxIndex = LEVEL_ORDER.indexOf(enrolledLevel as (typeof LEVEL_ORDER)[number])
-    return this.getAll().filter((certificate) => {
-      const idx = LEVEL_ORDER.indexOf(certificate.level as (typeof LEVEL_ORDER)[number])
-      return idx !== -1 && idx <= maxIndex
-    })
+    return this.getAll().filter((certificate) => certificate.status === "disponible")
   },
 }
-

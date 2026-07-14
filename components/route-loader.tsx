@@ -12,7 +12,7 @@ import {
 import { usePathname } from "next/navigation"
 
 interface RouteLoaderContextValue {
-  startLoading: () => void
+  startLoading: (href?: string) => void
   notifyRouteReady: () => void
 }
 
@@ -33,7 +33,15 @@ export function RouteLoaderProvider({ children }: { children: React.ReactNode })
     setRouteReady(true)
   }, [])
 
-  const startLoading = useCallback(() => {
+  const startLoading = useCallback((href?: string) => {
+    // Si la cible correspond a la route courante, on n'affiche pas le loader :
+    // une navigation vers la meme route ne change pas le pathname, donc
+    // RouteReadyMarker ne resignalerait jamais "pret" et l'overlay resterait
+    // bloque jusqu'au filet de securite (MAX_LOADER_MS).
+    if (href) {
+      const target = href.split("?")[0].split("#")[0]
+      if (target === window.location.pathname) return
+    }
     startAtRef.current = Date.now()
     setRouteReady(false)
     setLoading(true)
@@ -142,6 +150,6 @@ export function RouteReadyMarker() {
 export function useRouteLoader() {
   const ctx = useContext(RouteLoaderContext)
   return {
-    startLoading: ctx?.startLoading ?? (() => {}),
+    startLoading: ctx?.startLoading ?? ((_href?: string) => {}),
   }
 }

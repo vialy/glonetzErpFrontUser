@@ -86,7 +86,7 @@ export function SidebarNav({
                           return
                         }
                         if (item.href) {
-                          startLoading()
+                          startLoading(item.href)
                           router.push(item.href)
                         }
                       }}

@@ -3,12 +3,25 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useState, useEffect } from "react"
 import { authService } from "@/domains/auth"
+import { markWelcomePending } from "@/lib/welcome-session"
+import { ApiClientError } from "@/core/api/client"
+import { ERROR_CODES } from "@/core/api/error-codes"
 import type { UserRole } from "@/types"
+
+/** Traduit l'échec d'un changement de PIN en code d'erreur exploitable par l'UI. */
+function mapChangePinError(err: unknown): string {
+  if (err instanceof ApiClientError) {
+    if (err.errorCode === ERROR_CODES.INVALID_CREDENTIALS) return "WRONG_CURRENT_PIN"
+    if (err.errorCode === ERROR_CODES.VALIDATION) return "PIN_TOO_WEAK"
+  }
+  return "PIN_CHANGE_FAILED"
+}
 
 interface UseAuthReturn {
   isAuthenticated: boolean
   role: UserRole | null
   phone: string | null
+  name: string | null
   mustChangePin: boolean
   login: (phone: string, pin: string) => Promise<void>
   changePin: (currentPin: string, newPin: string) => Promise<boolean>
@@ -29,6 +42,7 @@ export function useAuth(): UseAuthReturn {
   const isAuthenticated = session !== null
   const role = session?.role ?? null
   const phone = session?.phone ?? null
+  const name = session?.name ?? null
   const mustChangePin = session?.mustChangePin ?? false
 
   useEffect(() => {
@@ -44,6 +58,10 @@ export function useAuth(): UseAuthReturn {
   const login = useCallback(async (phone: string, pin: string) => {
     setError(null)
     setLoading(true)
+    // On repart d'une session vierge : une éventuelle session résiduelle
+    // (ex. mustChangePin d'une 1re connexion non finalisée) ne doit pas
+    // survivre à une nouvelle tentative (et surtout pas à un échec).
+    authService.clearSessionCookie()
 
     try {
       const response = await authService.login(phone, pin)
@@ -55,6 +73,7 @@ export function useAuth(): UseAuthReturn {
       setAttemptsRemaining(authService.maxAttempts)
 
       if (!response.mustChangePin) {
+        markWelcomePending()
         router.push("/dashboard")
       }
     } catch {
@@ -83,8 +102,8 @@ export function useAuth(): UseAuthReturn {
       router.replace("/login?pinChanged=1")
       router.refresh()
       return true
-    } catch {
-      setError("PIN_CHANGE_FAILED")
+    } catch (err) {
+      setError(mapChangePinError(err))
       return false
     } finally {
       setLoading(false)
@@ -100,6 +119,7 @@ export function useAuth(): UseAuthReturn {
     isAuthenticated,
     role,
     phone,
+    name,
     mustChangePin,
     login,
     changePin,

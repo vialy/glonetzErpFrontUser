@@ -48,6 +48,8 @@ function mapMethodToGatewayProvider(method: CreatePaymentInput["paymentMethod"])
 type ApiClassSummary = {
   class?: { classId?: string; title?: string; fee?: number; currencyCode?: string }
   summary?: {
+    catalogExpected?: number
+    scholarshipDiscount?: number
     expected?: number
     paid?: number
     pending?: number
@@ -55,6 +57,12 @@ type ApiClassSummary = {
     fullyPaid?: boolean
     currencyCode?: string
     paymentsCount?: number
+    scholarship?: {
+      scholarshipId?: string
+      type?: string
+      discount?: number
+      isFull?: boolean
+    } | null
   }
 }
 
@@ -66,8 +74,10 @@ type ApiClassSummary = {
 function mapClassSummary(data: ApiClassSummary): StudentTuitionSummary {
   const summary = data.summary ?? {}
   const cls = data.class ?? {}
-  const totalTuition = summary.expected ?? cls.fee ?? 0
+  const catalogTuition = summary.catalogExpected ?? cls.fee ?? 0
+  const totalTuition = summary.expected ?? catalogTuition
   const amountPaid = summary.paid ?? 0
+  const scholarship = summary.scholarship
   return {
     studentName: "",
     className: cls.title ?? "",
@@ -76,6 +86,10 @@ function mapClassSummary(data: ApiClassSummary): StudentTuitionSummary {
     remainingAmount: summary.remaining ?? Math.max(0, totalTuition - amountPaid),
     currencyCode: summary.currencyCode ?? cls.currencyCode,
     classId: cls.classId,
+    catalogTuition,
+    scholarshipDiscount: summary.scholarshipDiscount ?? 0,
+    isScholarshipHolder: Boolean(scholarship),
+    scholarshipIsFull: Boolean(scholarship?.isFull),
   }
 }
 

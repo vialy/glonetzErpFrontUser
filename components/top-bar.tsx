@@ -47,7 +47,7 @@ export function TopBar({
   const profileHref = getProfileHref()
 
   function navigate(href: string) {
-    startLoading()
+    startLoading(href)
     router.push(href)
   }
 

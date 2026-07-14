@@ -35,6 +35,7 @@ const SESSION_INVALID_MESSAGES = [
 ]
 
 let handlingUnauthorized = false
+let handlingPasswordChange = false
 
 function normalizeApiPath(path: string) {
   const withSlash = path.startsWith("/") ? path : `/${path}`
@@ -88,4 +89,15 @@ export function handleSessionUnauthorized(): void {
   clearAuthBrowserState({ clearMockPinOverrides: false })
   window.dispatchEvent(new CustomEvent(STUDENT_SESSION_EXPIRED_EVENT))
   window.location.replace("/login?sessionExpired=1")
+}
+
+/**
+ * Mot de passe regenere par l'admin pendant une session active : ecran dedie
+ * avec compte a rebours puis retour au login.
+ */
+export function handlePasswordChangeRequired(): void {
+  if (typeof window === "undefined" || handlingPasswordChange) return
+  if (window.location.pathname.startsWith("/session-reset")) return
+  handlingPasswordChange = true
+  window.location.replace("/session-reset")
 }

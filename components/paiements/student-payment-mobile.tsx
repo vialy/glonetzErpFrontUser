@@ -149,7 +149,7 @@ export function StudentPaymentMobile({
                 router.back()
                 return
               }
-              startLoading()
+              startLoading("/dashboard")
               router.push("/dashboard")
             }}
           >

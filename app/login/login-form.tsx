@@ -29,8 +29,12 @@ export function LoginForm() {
 
   const [step, setStep] = useState<Step>("login")
   const [showPinChangedBanner, setShowPinChangedBanner] = useState(false)
+  const [showCredentialsResetBanner, setShowCredentialsResetBanner] = useState(false)
   const [animClass, setAnimClass] = useState("")
-  const [skipForceChangePinRedirect, setSkipForceChangePinRedirect] = useState(false)
+  // Démarre à true : on n'auto-redirige vers « change-pin » qu'après une vraie
+  // tentative de connexion (handleLogin repasse ce drapeau à false), jamais à
+  // cause d'un cookie de session résiduel lu au montage.
+  const [skipForceChangePinRedirect, setSkipForceChangePinRedirect] = useState(true)
 
   // Login fields
   const [phone, setPhone] = useState("")
@@ -113,6 +117,14 @@ export function LoginForm() {
   useEffect(() => {
     if (searchParams.get("pinChanged") !== "1") return
     returnToLoginStep({ showPinChangedMessage: true })
+    router.replace("/login")
+  }, [searchParams, router])
+
+  useEffect(() => {
+    if (searchParams.get("credentialsReset") !== "1") return
+    authService.clearSessionCookie()
+    returnToLoginStep()
+    setShowCredentialsResetBanner(true)
     router.replace("/login")
   }, [searchParams, router])
 
@@ -243,31 +255,56 @@ export function LoginForm() {
     "h-8 w-8 rounded-md border-2 border-input bg-card text-xs font-bold shadow-sm sm:h-9 sm:w-9 sm:text-sm"
 
   const isChangePinStep = step === "change-pin"
+  const isForgotStep = step === "forgot-phone" || step === "forgot-reset"
+
+  // Message d'erreur affiché dans l'étape de changement de PIN :
+  // vérifications locales (pinError) puis erreurs remontées par le service.
+  const changePinErrorText = (() => {
+    if (pinError) return pinError
+    switch (error) {
+      case "WRONG_CURRENT_PIN":
+        return t("wrong_current_pin")
+      case "PIN_TOO_WEAK":
+        return t("pin_too_weak")
+      case "PIN_CHANGE_FAILED":
+        return t("pin_change_failed")
+      default:
+        return ""
+    }
+  })()
 
   return (
     <div
       className={`flex h-full min-h-dvh flex-col px-4 sm:px-8 md:px-12 lg:h-dvh lg:min-h-0 lg:justify-start lg:bg-card lg:px-16 ${
         isChangePinStep
           ? "overflow-hidden pb-2 pt-12 sm:pt-14 lg:pt-8"
-          : "overflow-hidden pt-24 pb-3 sm:pt-28 lg:pt-14"
+          : isForgotStep
+            ? "overflow-hidden pb-3 pt-10 sm:pt-12 lg:pt-10"
+            : "overflow-hidden pt-24 pb-3 sm:pt-28 lg:pt-14"
       }`}
     >
       {/* Logo */}
-      <div className={`flex shrink-0 justify-center ${isChangePinStep ? "pb-1 lg:pb-2" : "pt-1.5 pb-1"}`}>
+      <div
+        className={`flex shrink-0 justify-center ${
+          isChangePinStep || isForgotStep ? "pb-1 lg:pb-2" : "pt-1.5 pb-1"
+        }`}
+      >
         <Image
           src="/images/logo.png"
           alt="Glonetz"
           width={220}
           height={80}
-          className={isChangePinStep ? "h-16 w-auto lg:h-14" : "h-24 w-auto sm:h-24 lg:h-16"}
+          className={
+            isChangePinStep || isForgotStep ? "h-16 w-auto lg:h-14" : "h-24 w-auto sm:h-24 lg:h-16"
+          }
           priority
         />
       </div>
 
       {/* Multi-step container */}
       <div
-        className={`relative mx-auto w-full max-w-md overflow-hidden ${
-          isChangePinStep ? "shrink-0" : "min-h-0 flex-1"
+        className={`relative mx-auto w-full max-w-md ${
+          isChangePinStep ? "shrink-0 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"
         }`}
       >
 
@@ -281,6 +318,14 @@ export function LoginForm() {
               <Alert className="border-primary/30 bg-primary/5 text-foreground">
                 <CheckCircle2 className="text-primary" />
                 <AlertTitle className="text-foreground leading-snug">{t("login_pin_changed_success")}</AlertTitle>
+              </Alert>
+            ) : null}
+            {showCredentialsResetBanner ? (
+              <Alert className="border-amber-500/30 bg-amber-500/10 text-foreground">
+                <ShieldAlert className="text-amber-600 dark:text-amber-400" />
+                <AlertTitle className="text-foreground leading-snug">
+                  {t("login_credentials_reset_banner")}
+                </AlertTitle>
               </Alert>
             ) : null}
             <div className="text-center">
@@ -415,10 +460,10 @@ export function LoginForm() {
               </p>
             </div>
 
-            {pinError && (
+            {changePinErrorText && (
               <div className="flex shrink-0 items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
                 <ShieldAlert className="size-4 shrink-0 text-destructive" />
-                <p className="text-xs font-medium text-destructive sm:text-sm">{pinError}</p>
+                <p className="text-xs font-medium text-destructive sm:text-sm">{changePinErrorText}</p>
               </div>
             )}
 
@@ -488,7 +533,7 @@ export function LoginForm() {
         {step === "forgot-phone" && (
           <form
             onSubmit={handleRequestSms}
-            className={`flex flex-col justify-center gap-6 py-6 ${animClass}`}
+            className={`flex flex-col justify-start gap-5 py-2 ${animClass}`}
           >
             {/* Back button */}
             <button
@@ -540,7 +585,7 @@ export function LoginForm() {
 
         {/* ===== STEP 4: FORGOT PIN - Enter temp PIN + new PIN ===== */}
         {step === "forgot-reset" && (
-          <div className={`flex flex-col justify-center gap-4 py-4 ${animClass}`}>
+          <div className={`flex flex-col justify-start gap-4 py-2 ${animClass}`}>
             {/* Back button */}
             <button
               type="button"

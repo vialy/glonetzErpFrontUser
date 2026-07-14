@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Download,
   FileClock,
   Home,
   PieChart as PieChartIcon,
@@ -21,10 +23,21 @@ import {
 } from "@/domains/payments"
 import { claimsService, type ClaimRecord } from "@/domains/claims"
 import { profileService } from "@/domains/profile"
+import { schoolCertificatesService, type StudentSchoolCertificateMine } from "@/domains/school-certificates"
 import type { StudentClass } from "@/types"
 import { useLocale } from "@/hooks/use-locale"
+import { downloadStudentSchoolCertificatePdf } from "@/lib/student-school-certificate-pdf"
+import {
+  apiCertificateToStudentSchoolCertificate,
+  buildStudentSchoolCertificate,
+} from "@/lib/student-school-certificate"
+import { canStudentDownloadSchoolCertificate } from "@/lib/school-certificate-permissions"
+import { SchoolCertificateTemplateService } from "@/services/school-certificate-template.service"
 import { StudentKpiTile } from "@/components/student/student-kpi-tile"
+import { ScholarshipBanner } from "@/components/student/scholarship-banner"
+import { DataLoadError } from "@/components/student/data-load-error"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { CACHE_KEYS, getCached, hasCached, setCached } from "@/lib/client-cache"
 
 const DEFAULT_SUMMARY: StudentTuitionSummary = {
@@ -49,11 +62,16 @@ export function StudentDashboard() {
   const [claims, setClaims] = useState<ClaimRecord[]>(
     () => getCached<ClaimRecord[]>(CACHE_KEYS.claimsAll) ?? [],
   )
+  const [schoolCertMine, setSchoolCertMine] = useState<StudentSchoolCertificateMine | null>(null)
+  const [schoolCertLoading, setSchoolCertLoading] = useState(true)
   // Skeleton uniquement si rien n'est encore en cache.
   const [loading, setLoading] = useState(
     () => !hasCached(CACHE_KEYS.paymentsSummary) && !hasCached(CACHE_KEYS.paymentsList),
   )
   const [classLoading, setClassLoading] = useState(() => !hasCached(CACHE_KEYS.profileMyClass))
+  // Erreur "plein écran" : uniquement quand la donnée principale échoue ET qu'on n'a rien en cache à afficher.
+  const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
   // Echeance basee sur la date de debut de la classe (GET /users/my-class).
   const classStartLabel = studentClass?.startDate
@@ -64,54 +82,71 @@ export function StudentDashboard() {
       })
     : "—"
 
-  useEffect(() => {
-    const refresh = async () => {
-      try {
-        const next = await paymentsService.getSummary()
-        setSummary(next)
-        setCached(CACHE_KEYS.paymentsSummary, next)
-      } catch {
-        // Endpoint paiements pas encore connecte au backend : on garde les valeurs par defaut.
-      }
-      try {
-        const next = await paymentsService.getPayments()
-        setPayments(next)
-        setCached(CACHE_KEYS.paymentsList, next)
-      } catch {
-        if (!hasCached(CACHE_KEYS.paymentsList)) setPayments([])
-      }
-      try {
-        const next = await claimsService.getAll()
-        setClaims(next)
-        setCached(CACHE_KEYS.claimsAll, next)
-      } catch {
-        if (!hasCached(CACHE_KEYS.claimsAll)) setClaims([])
-      } finally {
-        setLoading(false)
-      }
+  const load = useCallback(async () => {
+    // La synthèse de paiement est la donnée principale du dashboard : si elle
+    // échoue alors qu'aucune valeur n'est en cache, on bascule en mode erreur
+    // plutôt que d'afficher une coquille remplie de zéros.
+    let summaryOk = false
+    try {
+      const next = await paymentsService.getSummary()
+      setSummary(next)
+      setCached(CACHE_KEYS.paymentsSummary, next)
+      summaryOk = true
+    } catch {
+      // On conserve la valeur précédente / par défaut.
     }
-    void refresh()
-    window.addEventListener("student-payments-updated", refresh)
-    window.addEventListener("claims-updated", refresh)
-    return () => {
-      window.removeEventListener("student-payments-updated", refresh)
-      window.removeEventListener("claims-updated", refresh)
+    try {
+      const next = await paymentsService.getPayments()
+      setPayments(next)
+      setCached(CACHE_KEYS.paymentsList, next)
+    } catch {
+      if (!hasCached(CACHE_KEYS.paymentsList)) setPayments([])
     }
+    try {
+      const next = await claimsService.getAll()
+      setClaims(next)
+      setCached(CACHE_KEYS.claimsAll, next)
+    } catch {
+      if (!hasCached(CACHE_KEYS.claimsAll)) setClaims([])
+    }
+    try {
+      // Classe de l'apprenant via /users/my-class (endpoint léger dédié).
+      const next = await profileService.getMyClass()
+      setStudentClass(next)
+      setCached(CACHE_KEYS.profileMyClass, next)
+    } catch {
+      if (!hasCached(CACHE_KEYS.profileMyClass)) setStudentClass(null)
+    }
+    try {
+      const [mine] = await Promise.all([
+        schoolCertificatesService.getMine(),
+        SchoolCertificateTemplateService.fetch(),
+      ])
+      setSchoolCertMine(mine)
+    } catch {
+      setSchoolCertMine(null)
+    }
+    setSchoolCertLoading(false)
+    setLoading(false)
+    setClassLoading(false)
+    setError(!summaryOk && !hasCached(CACHE_KEYS.paymentsSummary))
   }, [])
 
   useEffect(() => {
-    // Classe de l'apprenant via /users/my-class (endpoint léger dédié).
-    void profileService
-      .getMyClass()
-      .then((next) => {
-        setStudentClass(next)
-        setCached(CACHE_KEYS.profileMyClass, next)
-      })
-      .catch(() => {
-        if (!hasCached(CACHE_KEYS.profileMyClass)) setStudentClass(null)
-      })
-      .finally(() => setClassLoading(false))
-  }, [])
+    void load()
+    window.addEventListener("student-payments-updated", load)
+    window.addEventListener("claims-updated", load)
+    return () => {
+      window.removeEventListener("student-payments-updated", load)
+      window.removeEventListener("claims-updated", load)
+    }
+  }, [load])
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    await load()
+    setRetrying(false)
+  }, [load])
 
   const paymentProgress = useMemo(() => {
     if (summary.totalTuition <= 0) return 0
@@ -148,6 +183,21 @@ export function StudentDashboard() {
     return { paidSeries: paid, remainingSeries: remaining }
   }, [payments, summary.totalTuition])
 
+  const settledPaymentCount = useMemo(
+    () =>
+      payments.filter((p) => p.status === undefined || p.status === "successful").length,
+    [payments],
+  )
+
+  const nextDueNote = useMemo(() => {
+    if (!studentClass?.startDate) return t("stu_kpi_next_no_date")
+    if (summary.remainingAmount <= 0 && summary.totalTuition > 0) return t("stu_kpi_next_paid")
+    if (summary.remainingAmount > 0) {
+      return t("stu_kpi_next_remain").replace("{amount}", formatFcfa(summary.remainingAmount))
+    }
+    return t("stu_kpi_next_paid")
+  }, [studentClass, summary, t, formatFcfa])
+
   const kpis = useMemo(
     () => [
       {
@@ -170,7 +220,7 @@ export function StudentDashboard() {
         label: t("stu_kpi_paid"),
         value: fcfaNumber(summary.amountPaid),
         unit: "F CFA",
-        periodLabel: t("stu_kpi_paid_note"),
+        periodLabel: t("stu_kpi_paid_note").replace("{count}", String(settledPaymentCount)),
         series: paidSeries,
         tone: "emerald" as const,
         loading,
@@ -181,13 +231,13 @@ export function StudentDashboard() {
         label: t("stu_kpi_next"),
         value: classStartLabel,
         unit: undefined,
-        periodLabel: t("stu_kpi_next_note"),
+        periodLabel: nextDueNote,
         series: [] as number[],
         tone: "sky" as const,
         loading: classLoading,
       },
     ],
-    [t, summary, paymentProgress, classStartLabel, paidSeries, remainingSeries, loading, classLoading],
+    [t, summary, paymentProgress, classStartLabel, paidSeries, remainingSeries, loading, classLoading, settledPaymentCount, nextDueNote],
   )
 
   // Paiements recents reels : 4 derniers mouvements (tous statuts confondus).
@@ -211,17 +261,58 @@ export function StudentDashboard() {
     [payments, t, locale],
   )
 
-  const adminStatus = useMemo(
-    () => [
-      {
-        label: t("stu_adm_attest"),
-        value: t("stu_adm_todo"),
-        tone: "bg-amber-500/10 text-amber-600",
-        icon: <FileClock className="size-3.5" />,
-      },
-    ],
-    [t],
+  const schoolCertificate = useMemo(() => {
+    if (schoolCertMine?.certificate) {
+      return apiCertificateToStudentSchoolCertificate(schoolCertMine.certificate)
+    }
+    return buildStudentSchoolCertificate({
+      studentName: summary.studentName,
+      studentClass,
+    })
+  }, [schoolCertMine, summary.studentName, studentClass])
+
+  const tuitionFullyPaid = schoolCertMine?.tuitionFullyPaid ?? summary.remainingAmount <= 0
+
+  const schoolCertDecision = useMemo(
+    () =>
+      canStudentDownloadSchoolCertificate(schoolCertificate, tuitionFullyPaid, {
+        templateReady: schoolCertMine?.templateReady,
+        canDownload: schoolCertMine?.canDownload,
+      }),
+    [schoolCertificate, tuitionFullyPaid, schoolCertMine],
   )
+
+  const adminStatus = useMemo(() => {
+    let value = t("stu_adm_todo")
+    let tone = "bg-amber-500/10 text-amber-600"
+    let icon = <FileClock className="size-3.5" />
+
+    if (schoolCertDecision.allowed) {
+      value = t("stu_adm_ready")
+      tone = "bg-emerald-500/10 text-emerald-600"
+      icon = <CheckCircle2 className="size-3.5" />
+    } else if (!tuitionFullyPaid) {
+      value = t("stu_adm_unpaid")
+    } else if (schoolCertMine?.templateReady === false) {
+      value = t("stu_adm_todo")
+    } else {
+      value = t("stu_adm_unavailable")
+    }
+
+    return {
+      label: t("stu_adm_attest"),
+      value,
+      tone,
+      icon,
+      hint: schoolCertDecision.allowed ? schoolCertificate.className : schoolCertDecision.reason,
+      canDownload: schoolCertDecision.allowed,
+    }
+  }, [t, schoolCertDecision, tuitionFullyPaid, schoolCertMine, schoolCertificate.className])
+
+  async function downloadSchoolCertificate() {
+    await SchoolCertificateTemplateService.fetch()
+    await downloadStudentSchoolCertificatePdf(schoolCertificate)
+  }
 
   // Repartition reelle par canal : part (%) du montant encaisse par methode.
   const paymentChannels = useMemo(() => {
@@ -264,7 +355,59 @@ export function StudentDashboard() {
 
   const hasClaimsData = claims.length > 0
 
+  const usefulAlerts = useMemo(() => {
+    const items: string[] = []
+
+    if (studentClass?.startDate) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const startDay = new Date(studentClass.startDate)
+      startDay.setHours(0, 0, 0, 0)
+      const daysUntil = Math.round((startDay.getTime() - today.getTime()) / 86_400_000)
+
+      if (daysUntil > 0) {
+        items.push(
+          t("stu_alert_rentree_future")
+            .replace("{date}", classStartLabel)
+            .replace("{days}", String(daysUntil)),
+        )
+      } else if (daysUntil === 0) {
+        items.push(t("stu_alert_rentree_today").replace("{date}", classStartLabel))
+      } else {
+        items.push(t("stu_alert_rentree_past").replace("{date}", classStartLabel))
+      }
+    }
+
+    if (summary.remainingAmount > 0) {
+      items.push(
+        t("stu_alert_remain_amount").replace("{amount}", formatFcfa(summary.remainingAmount)),
+      )
+    } else if (summary.totalTuition > 0 || summary.isScholarshipHolder) {
+      items.push(t("stu_alert_paid_full"))
+    }
+
+    const pendingClaims = claims.filter(
+      (c) => c.status === "en_attente" || c.status === "en_cours",
+    ).length
+    if (pendingClaims > 0) {
+      items.push(t("stu_alert_claims_pending").replace("{count}", String(pendingClaims)))
+    }
+
+    const hasSettledPayments = payments.some(
+      (p) => p.status === undefined || p.status === "successful",
+    )
+    if (hasSettledPayments) {
+      items.push(t("stu_alert_receipts"))
+    }
+
+    return items
+  }, [studentClass, classStartLabel, summary, claims, payments, t, formatFcfa])
+
   const statusValid = t("stu_status_ok")
+
+  if (error) {
+    return <DataLoadError fullScreen onRetry={handleRetry} retrying={retrying} />
+  }
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -295,6 +438,12 @@ export function StudentDashboard() {
           </div>
           <div className="bg-black/10 px-5 py-3 text-xs text-primary-foreground/90">{t("stu_hero_sub")}</div>
         </div>
+
+        {summary.isScholarshipHolder ? (
+          <div className="mt-4">
+            <ScholarshipBanner summary={summary} />
+          </div>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {kpis.map((kpi) => (
@@ -455,15 +604,43 @@ export function StudentDashboard() {
                 <h3 className="text-sm font-semibold">{t("stu_adm_status")}</h3>
               </div>
               <div className="space-y-3">
-                {adminStatus.map((item) => (
-                  <div key={item.label} className="rounded-lg border p-3">
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
-                    <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${item.tone}`}>
-                      {item.icon}
-                      {item.value}
-                    </span>
+                {schoolCertLoading ? (
+                  <Skeleton className="h-24 w-full rounded-lg" />
+                ) : (
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm font-medium text-foreground">{adminStatus.label}</p>
+                    {adminStatus.hint ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{adminStatus.hint}</p>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${adminStatus.tone}`}
+                      >
+                        {adminStatus.icon}
+                        {adminStatus.value}
+                      </span>
+                      {adminStatus.canDownload ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => void downloadSchoolCertificate()}
+                        >
+                          <Download className="mr-1 size-3" />
+                          {t("stu_adm_download")}
+                        </Button>
+                      ) : (
+                        <Link
+                          href="/dashboard/mon-profil"
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          {t("stu_adm_profile_link")}
+                        </Link>
+                      )}
+                    </div>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
@@ -473,9 +650,15 @@ export function StudentDashboard() {
                 <h3 className="text-sm font-semibold">{t("stu_alerts")}</h3>
               </div>
               <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                <p>{t("stu_alert_1")}</p>
-                <p>{t("stu_alert_2")}</p>
-                <p>{t("stu_alert_3")}</p>
+                {loading || classLoading ? (
+                  <Skeleton className="h-16 w-full rounded-lg" />
+                ) : usefulAlerts.length === 0 ? (
+                  <p>{t("stu_alert_none")}</p>
+                ) : (
+                  usefulAlerts.map((alert) => (
+                    <p key={alert}>- {alert}</p>
+                  ))
+                )}
               </div>
             </div>
           </div>

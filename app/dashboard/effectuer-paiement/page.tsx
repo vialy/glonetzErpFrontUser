@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2, CircleAlert, CreditCard, CircleCheck, ReceiptText, ShieldCheck, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StudentStatCard } from "@/components/student/student-stat-card"
+import { ScholarshipBanner } from "@/components/student/scholarship-banner"
+import { DataLoadError } from "@/components/student/data-load-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MobileBackButton } from "@/components/mobile-back-button"
@@ -64,21 +66,34 @@ export default function EffectuerPaiementPage() {
   const [pendingMethod, setPendingMethod] = useState<PaymentMethod>("orange_money")
   const [checkingStatus, setCheckingStatus] = useState(false)
   const [loading, setLoading] = useState(() => !hasCached(CACHE_KEYS.paymentsSummary))
+  const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+
+  const load = useCallback(async () => {
+    let ok = false
+    try {
+      const next = await paymentsService.getSummary()
+      setSummary(next)
+      setCached(CACHE_KEYS.paymentsSummary, next)
+      ok = true
+    } catch {
+      // La synthèse pilote le formulaire (montant restant) : sans elle la page est inutilisable.
+    }
+    setLoading(false)
+    setError(!ok && !hasCached(CACHE_KEYS.paymentsSummary))
+  }, [])
 
   useEffect(() => {
-    const refresh = async () => {
-      try {
-        const next = await paymentsService.getSummary()
-        setSummary(next)
-        setCached(CACHE_KEYS.paymentsSummary, next)
-      } finally {
-        setLoading(false)
-      }
-    }
-    void refresh()
-    window.addEventListener("student-payments-updated", refresh)
-    return () => window.removeEventListener("student-payments-updated", refresh)
-  }, [])
+    void load()
+    window.addEventListener("student-payments-updated", load)
+    return () => window.removeEventListener("student-payments-updated", load)
+  }, [load])
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    await load()
+    setRetrying(false)
+  }, [load])
 
   useEffect(() => {
     if (!phone && sessionPhone) setPhone(sessionPhone)
@@ -274,6 +289,10 @@ export default function EffectuerPaiementPage() {
     doc.save(`recu-${lastPayment.paymentId}.pdf`)
   }
 
+  if (error) {
+    return <DataLoadError fullScreen onRetry={handleRetry} retrying={retrying} />
+  }
+
   return (
     <>
       <StudentPaymentMobile
@@ -367,7 +386,13 @@ export default function EffectuerPaiementPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {summary.isScholarshipHolder ? (
+          <div className="mt-4">
+            <ScholarshipBanner summary={summary} />
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <StudentStatCard
             icon={<Wallet className="size-4" />}
             tone="indigo"

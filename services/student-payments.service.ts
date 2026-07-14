@@ -10,17 +10,50 @@ import type {
 type StudentPaymentState = {
   studentName: string
   className: string
+  classId: string
   totalTuition: number
   payments: StudentPaymentRecord[]
 }
 
-const STORAGE_KEY = "glonetz_student_payments_v1"
+const STORAGE_KEY = "glonetz_student_payments_v2"
 
 const DEFAULT_STATE: StudentPaymentState = {
   studentName: "Etudiant Demo",
-  className: "A1",
-  totalTuition: 160_000,
-  payments: [],
+  className: "A2 - Apr 2025",
+  classId: "a2-apr-2025",
+  totalTuition: 170_000,
+  payments: [
+    {
+      paymentId: "PAY-DEMO-A1-1",
+      amount: 80_000,
+      currencyCode: "XOF",
+      paymentMethod: "mtn_momo",
+      createdAt: "2026-02-10T10:00:00.000Z",
+      paidAt: "2026-02-10T10:00:00.000Z",
+      classId: "a1-jan-2025",
+      status: "successful",
+    },
+    {
+      paymentId: "PAY-DEMO-A1-2",
+      amount: 82_000,
+      currencyCode: "XOF",
+      paymentMethod: "orange_money",
+      createdAt: "2026-03-01T14:00:00.000Z",
+      paidAt: "2026-03-01T14:00:00.000Z",
+      classId: "a1-jan-2025",
+      status: "successful",
+    },
+    {
+      paymentId: "PAY-DEMO-A2-1",
+      amount: 45_000,
+      currencyCode: "XOF",
+      paymentMethod: "orange_money",
+      createdAt: "2026-03-22T09:00:00.000Z",
+      paidAt: "2026-03-22T09:00:00.000Z",
+      classId: "a2-apr-2025",
+      status: "successful",
+    },
+  ],
 }
 
 function canUseStorage() {
@@ -39,6 +72,7 @@ function readState(): StudentPaymentState {
     return {
       studentName: parsed.studentName ?? DEFAULT_STATE.studentName,
       className: parsed.className ?? DEFAULT_STATE.className,
+      classId: parsed.classId ?? DEFAULT_STATE.classId,
       totalTuition: parsed.totalTuition ?? DEFAULT_STATE.totalTuition,
       payments: Array.isArray(parsed.payments) ? parsed.payments : [],
     }
@@ -102,6 +136,8 @@ export const StudentPaymentsService = {
       createdAt: new Date().toISOString(),
       paidAt: new Date().toISOString(),
       note: input.note,
+      classId: input.classId ?? state.classId,
+      status: "successful",
     }
 
     const next: StudentPaymentState = {
@@ -132,6 +168,8 @@ export const StudentPaymentsService = {
       paidAt: new Date().toISOString(),
       note: input.note,
       sourceClaimId: input.claimId,
+      classId: state.classId,
+      status: "successful",
     }
 
     const next: StudentPaymentState = {

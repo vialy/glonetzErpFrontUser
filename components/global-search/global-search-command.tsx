@@ -59,7 +59,7 @@ export function GlobalSearchCommand({ open, onOpenChange, role, phone }: GlobalS
   const navigate = useCallback(
     (href: string) => {
       onOpenChange(false)
-      startLoading()
+      startLoading(href)
       router.push(href)
     },
     [onOpenChange, router, startLoading],

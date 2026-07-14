@@ -1,7 +1,12 @@
 "use client"
 
 import { SESSION_KEY } from "@/services/auth.service"
-import { handleSessionUnauthorized, isSessionUnauthorizedError } from "@/core/api/unauthorized"
+import { ERROR_CODES } from "@/core/api/error-codes"
+import {
+  handlePasswordChangeRequired,
+  handleSessionUnauthorized,
+  isSessionUnauthorizedError,
+} from "@/core/api/unauthorized"
 
 export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   query?: Record<string, string | number | boolean | undefined | null>
@@ -104,6 +109,14 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   // Déconnexion automatique si la session est invalide/expirée (token rejeté).
   const maybeHandleUnauthorized = (status: number, message?: string, errorCode?: number) => {
+    if (
+      hadToken &&
+      errorCode === ERROR_CODES.PASSWORD_CHANGE_REQUIRED &&
+      !path.includes("/users/auth/change-password")
+    ) {
+      handlePasswordChangeRequired()
+      return
+    }
     if (isSessionUnauthorizedError(path, { status, errorCode, message, hadToken })) {
       handleSessionUnauthorized()
     }

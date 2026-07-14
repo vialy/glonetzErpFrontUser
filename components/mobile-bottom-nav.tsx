@@ -37,7 +37,7 @@ export function MobileBottomNav({ role: _role }: { role?: unknown }) {
               key={item.href}
               type="button"
               onClick={() => {
-                startLoading()
+                startLoading(item.href)
                 router.push(item.href)
               }}
               className={cn(

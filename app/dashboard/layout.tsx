@@ -11,6 +11,8 @@ import { GettingStartedGuideSheet } from "@/components/getting-started/getting-s
 import { useGettingStartedGuide } from "@/hooks/use-getting-started-guide"
 import { MobileBottomNav } from "@/components/mobile-bottom-nav"
 import { RouteLoaderProvider } from "@/components/route-loader"
+import { WelcomeOverlay } from "@/components/welcome-overlay"
+import { consumeWelcomePending } from "@/lib/welcome-session"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useLocale } from "@/hooks/use-locale"
 
@@ -20,13 +22,20 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { isAuthenticated, mustChangePin, logout, role, phone } = useAuth()
+  const { isAuthenticated, mustChangePin, logout, role, phone, name } = useAuth()
   const { t } = useLocale()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [ready, setReady] = useState(false)
+  const [showWelcome, setShowWelcome] = useState(false)
   const guide = useGettingStartedGuide(role)
+
+  useEffect(() => {
+    if (consumeWelcomePending()) {
+      setShowWelcome(true)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -103,6 +112,9 @@ export default function DashboardLayout({
 
         <MobileBottomNav role={role} />
       </div>
+      {showWelcome ? (
+        <WelcomeOverlay name={name} onDone={() => setShowWelcome(false)} />
+      ) : null}
     </RouteLoaderProvider>
   )
 }

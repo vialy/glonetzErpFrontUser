@@ -73,6 +73,16 @@ export const authService = {
   clearSession(options?: ClearAuthBrowserStateOptions) {
     clearAuthBrowserState(options)
   },
+  /**
+   * Supprime UNIQUEMENT le cookie de session (sans toucher au compteur de
+   * tentatives ni au cooldown). Utilisé au début d'une connexion pour repartir
+   * d'un état propre et éviter qu'une session résiduelle (ex. mustChangePin)
+   * ne pollue le formulaire de login.
+   */
+  clearSessionCookie() {
+    if (typeof document === "undefined") return
+    document.cookie = `${SESSION_KEY}=; path=/; max-age=0`
+  },
   isAuthenticated(): boolean {
     return this.getSession() !== null
   },

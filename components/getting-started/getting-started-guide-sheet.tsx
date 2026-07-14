@@ -92,7 +92,7 @@ export function GettingStartedGuideSheet({ open, onOpenChange, guide }: GettingS
                         className="mt-1.5 h-7 px-2.5 text-[11px]"
                         asChild
                         onClick={() => {
-                          startLoading()
+                          startLoading(step.href)
                           onOpenChange(false)
                         }}
                       >

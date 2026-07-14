@@ -1,11 +1,16 @@
 "use client"
 
-import { apiRequest } from "@/core/api/client"
+import { apiRequest, ApiClientError } from "@/core/api/client"
 import type { ClaimRecord, ClaimStatus, ClaimsProvider, CreateClaimInput } from "@/domains/claims/types"
+
+// Codes d'erreur backend (envelope.errorCode) utiles cote reclamations.
+const ERR_CONFLICT = 1005 // doublon : une reclamation existe deja pour ce paiement
+const ERR_PAYMENT_NOT_FOUND = 3004
 
 /** Forme brute d'une reclamation (modele Claim) renvoyee par /users/claims. */
 type ApiClaim = {
   claimId?: string
+  paymentId?: string
   amount?: number
   currencyCode?: string
   description?: string
@@ -24,25 +29,22 @@ function mapStatus(status?: string): ClaimStatus {
   return "en_attente" // pending ou inconnu
 }
 
-/** Reconstitue une URL absolue pour la preuve (proofUrl peut etre relatif). */
+/**
+ * Reconstruit l'URL de la preuve sur l'API réellement utilisée.
+ * Le back-end génère proofUrl avec son APP_BASE_URL (souvent http://localhost:4000
+ * en dev) : on ré-ancre toujours le chemin du fichier sur NEXT_PUBLIC_API_BASE_URL
+ * pour que l'image se charge depuis le bon hôte (les uploads sont servis par l'API).
+ */
 function absoluteUrl(url?: string): string | undefined {
   if (!url) return undefined
-  if (/^https?:\/\//i.test(url)) return url
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "")
-  return `${base}${url.startsWith("/") ? "" : "/"}${url}`
-}
-
-/**
- * Le back-end n'a pas de colonnes pour l'operateur / numero / reference : on les
- * prefixe a la description pour ne rien perdre cote admin.
- */
-function composeDescription(input: CreateClaimInput): string {
-  const operator = input.paymentMethod === "orange_money" ? "Orange Money" : "MTN Mobile Money"
-  const meta = [`Operateur: ${operator}`]
-  if (input.phoneNumber?.trim()) meta.push(`Numero: ${input.phoneNumber.trim()}`)
-  if (input.transactionReference?.trim()) meta.push(`Reference: ${input.transactionReference.trim()}`)
-  const base = input.description?.trim() ?? ""
-  return [meta.join(" | "), base].filter(Boolean).join("\n")
+  if (!base) return url
+  try {
+    const parsed = new URL(url)
+    return `${base}${parsed.pathname}${parsed.search}`
+  } catch {
+    return `${base}${url.startsWith("/") ? "" : "/"}${url}`
+  }
 }
 
 function mapClaim(c: ApiClaim): ClaimRecord {
@@ -51,10 +53,9 @@ function mapClaim(c: ApiClaim): ClaimRecord {
     id: c.claimId ?? "",
     createdAt: c.createdAt ?? c.paymentDate ?? new Date().toISOString(),
     amount: c.amount ?? 0,
-    // Le backend ne stocke pas l'operateur ni le numero pour une reclamation.
-    paymentMethod: "orange_money",
-    phoneNumber: "",
-    transactionReference: c.claimId ?? "",
+    // Identifiant convivial du paiement contesté (renvoyé par le back-end v4).
+    paymentId: c.paymentId,
+    paymentDate: c.paymentDate,
     description: c.description ?? "",
     screenshotDataUrl: proof,
     screenshotName: proof ? proof.split("/").pop() : undefined,
@@ -69,17 +70,25 @@ export const httpClaimsProvider: ClaimsProvider = {
     return docs.map(mapClaim)
   },
   async create(input: CreateClaimInput) {
-    // Le backend ne stocke que amount, currencyCode, description, paymentDate + fichier `proof`.
-    // L'operateur / numero / reference saisis cote UI n'ont pas de colonne dediee : on les
-    // replie dans la description pour qu'ils restent visibles cote admin.
+    // v4 : une réclamation est rattachée à un paiement existant (pending/failed).
+    // Le montant est recopié du paiement côté back-end : on n'envoie que
+    // paymentId, paymentDate, description et le fichier `proof`.
     const body = new FormData()
-    body.append("amount", String(input.amount))
-    body.append("currencyCode", "XAF")
-    body.append("description", composeDescription(input))
+    body.append("paymentId", input.paymentId)
     body.append("paymentDate", input.paymentDate || new Date().toISOString())
+    if (input.description?.trim()) body.append("description", input.description.trim())
     if (input.screenshotFile) body.append("proof", input.screenshotFile)
-    const data = await apiRequest<{ claim: ApiClaim }>("/users/claims", { method: "POST", body })
-    return mapClaim(data.claim)
+    try {
+      const data = await apiRequest<{ claim: ApiClaim }>("/users/claims", { method: "POST", body })
+      return mapClaim(data.claim)
+    } catch (error) {
+      // Traduit les codes back-end en codes metier stables pour l'UI.
+      if (error instanceof ApiClientError) {
+        if (error.errorCode === ERR_CONFLICT) throw new Error("CLAIM_ALREADY_EXISTS")
+        if (error.errorCode === ERR_PAYMENT_NOT_FOUND) throw new Error("PAYMENT_NOT_FOUND")
+      }
+      throw error
+    }
   },
   async updateStatus(id, status) {
     // Endpoint admin uniquement ; non utilise par le portail apprenant.

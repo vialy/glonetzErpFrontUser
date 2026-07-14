@@ -35,9 +35,18 @@ function toBlob(dataUrl: string): Blob | null {
   return new Blob([parsed.bytes], { type: parsed.mime })
 }
 
+/** URL http(s) ou chemin absolu (preuve servie par l'API v4, pas un data: base64). */
+function isRemoteUrl(value: string): boolean {
+  const trimmed = value.trim()
+  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")
+}
+
 export function isClaimProofReadable(dataUrl?: string): boolean {
   if (!dataUrl?.trim()) return false
-  return Boolean(parseDataUrl(dataUrl) ?? dataUrl.trim().startsWith("data:"))
+  const trimmed = dataUrl.trim()
+  if (trimmed.startsWith("data:")) return true
+  if (isRemoteUrl(trimmed)) return true
+  return Boolean(parseDataUrl(trimmed))
 }
 
 export function defaultClaimProofFilename(claimId: string, screenshotName?: string): string {
@@ -51,7 +60,10 @@ export function defaultClaimProofFilename(claimId: string, screenshotName?: stri
 export function proofToObjectUrl(dataUrl: string): string | null {
   const blob = toBlob(dataUrl)
   if (blob) return URL.createObjectURL(blob)
-  if (dataUrl.trim().startsWith("data:")) return dataUrl.trim()
+  const trimmed = dataUrl.trim()
+  if (trimmed.startsWith("data:")) return trimmed
+  // Preuve servie par l'API (URL http(s) ou chemin absolu) : utilisable telle quelle.
+  if (isRemoteUrl(trimmed)) return trimmed
   return null
 }
 

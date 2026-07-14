@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { AlertCircle, Paperclip, Send, ShieldAlert } from "lucide-react"
 import { ClaimProofActions } from "@/components/claims/claim-proof-actions"
 import { Badge } from "@/components/ui/badge"
@@ -9,10 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MobileBackButton } from "@/components/mobile-back-button"
+import { DataLoadError } from "@/components/student/data-load-error"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { claimsService, type ClaimPaymentMethod, type ClaimRecord } from "@/domains/claims"
+import { claimsService, type ClaimRecord } from "@/domains/claims"
+import { paymentsService, type StudentPaymentRecord } from "@/domains/payments"
 import { CACHE_KEYS, getCached, hasCached, setCached } from "@/lib/client-cache"
 import { useLocale } from "@/hooks/use-locale"
 import type { TranslationKey } from "@/services/i18n"
@@ -42,74 +44,113 @@ export default function ReclamationsPage() {
       hour: "2-digit",
       minute: "2-digit",
     })
-  const [amount, setAmount] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<ClaimPaymentMethod>("orange_money")
-  const [phoneNumber, setPhoneNumber] = useState("")
-  const [transactionReference, setTransactionReference] = useState("")
+  const [selectedPaymentId, setSelectedPaymentId] = useState("")
+  const [claimablePayments, setClaimablePayments] = useState<StudentPaymentRecord[]>([])
+  const [paymentsLoading, setPaymentsLoading] = useState(true)
   const [paymentDate, setPaymentDate] = useState("")
   const [description, setDescription] = useState("")
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
+
+  const selectedPayment = claimablePayments.find((p) => p.paymentId === selectedPaymentId) ?? null
   const [claims, setClaims] = useState<ClaimRecord[]>(
     () => getCached<ClaimRecord[]>(CACHE_KEYS.claimsAll) ?? [],
   )
+
+  // Un paiement ne peut avoir qu'une seule reclamation : on retire de la liste
+  // ceux qui en ont deja une pour eviter l'erreur de doublon cote back-end.
+  const claimedPaymentIds = new Set(claims.map((c) => c.paymentId).filter(Boolean))
+  const availablePayments = claimablePayments.filter((p) => !claimedPaymentIds.has(p.paymentId))
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(() => !hasCached(CACHE_KEYS.claimsAll))
+  const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+
+  const load = useCallback(async () => {
+    let ok = false
+    try {
+      const next = await claimsService.getAll()
+      setClaims(next)
+      setCached(CACHE_KEYS.claimsAll, next)
+      ok = true
+    } catch {
+      // Reclamations indisponibles : liste vide conservee.
+    }
+    setLoading(false)
+    setError(!ok && !hasCached(CACHE_KEYS.claimsAll))
+  }, [])
 
   useEffect(() => {
-    const refresh = async () => {
-      try {
-        const next = await claimsService.getAll()
-        setClaims(next)
-        setCached(CACHE_KEYS.claimsAll, next)
-      } catch {
-        // Reclamations indisponibles : liste vide conservee.
-      } finally {
-        setLoading(false)
-      }
+    void load()
+    window.addEventListener("claims-updated", load)
+    return () => window.removeEventListener("claims-updated", load)
+  }, [load])
+
+  const loadClaimablePayments = useCallback(async () => {
+    setPaymentsLoading(true)
+    try {
+      setClaimablePayments(await paymentsService.getClaimablePayments())
+    } catch {
+      setClaimablePayments([])
+    } finally {
+      setPaymentsLoading(false)
     }
-    void refresh()
-    window.addEventListener("claims-updated", refresh)
-    return () => window.removeEventListener("claims-updated", refresh)
   }, [])
+
+  useEffect(() => {
+    void loadClaimablePayments()
+  }, [loadClaimablePayments])
+
+  const handleSelectPayment = (paymentId: string) => {
+    setSelectedPaymentId(paymentId)
+    // Pré-remplit la date du paiement à partir du paiement sélectionné (modifiable).
+    const payment = claimablePayments.find((p) => p.paymentId === paymentId)
+    if (payment) setPaymentDate((payment.paidAt ?? payment.createdAt).slice(0, 10))
+  }
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    await load()
+    setRetrying(false)
+  }, [load])
 
   const submitClaim = async () => {
     if (submitting) return
     setSubmitting(true)
     setMessage(null)
     try {
-      if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) throw new Error("INVALID_AMOUNT")
+      if (!selectedPaymentId) throw new Error("PAYMENT_REQUIRED")
       if (!screenshotFile) throw new Error("PROOF_REQUIRED")
       if (!paymentDate) throw new Error("DATE_REQUIRED")
       await claimsService.create({
-        amount: Number(amount),
-        paymentMethod,
-        phoneNumber,
-        transactionReference,
-        description,
+        paymentId: selectedPaymentId,
         paymentDate: new Date(paymentDate).toISOString(),
+        description,
         screenshotFile,
       })
       setClaims(await claimsService.getAll())
-      setAmount("")
-      setPhoneNumber("")
-      setTransactionReference("")
+      await loadClaimablePayments()
+      setSelectedPaymentId("")
       setPaymentDate("")
       setDescription("")
       setScreenshotFile(null)
       setMessage({ type: "success", text: t("recl_msg_ok") })
     } catch (error) {
       const code = error instanceof Error ? error.message : "UNKNOWN"
-      if (code === "INVALID_AMOUNT") setMessage({ type: "error", text: t("recl_err_amount") })
+      if (code === "PAYMENT_REQUIRED") setMessage({ type: "error", text: t("recl_err_payment") })
       else if (code === "PROOF_REQUIRED") setMessage({ type: "error", text: t("recl_err_proof") })
       else if (code === "DATE_REQUIRED") setMessage({ type: "error", text: t("recl_err_date") })
-      else if (code === "PHONE_REQUIRED") setMessage({ type: "error", text: t("recl_err_phone") })
-      else if (code === "REFERENCE_REQUIRED") setMessage({ type: "error", text: t("recl_err_ref") })
       else if (code === "DESCRIPTION_REQUIRED") setMessage({ type: "error", text: t("recl_err_desc") })
+      else if (code === "CLAIM_ALREADY_EXISTS") setMessage({ type: "error", text: t("recl_err_duplicate") })
+      else if (code === "PAYMENT_NOT_FOUND") setMessage({ type: "error", text: t("recl_err_payment_not_found") })
       else setMessage({ type: "error", text: t("recl_err_generic") })
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (error) {
+    return <DataLoadError fullScreen onRetry={handleRetry} retrying={retrying} />
   }
 
   return (
@@ -165,47 +206,36 @@ export default function ReclamationsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
+                <Label>{t("recl_label_payment")}</Label>
+                <Select
+                  value={selectedPaymentId}
+                  onValueChange={handleSelectPayment}
+                  disabled={paymentsLoading || availablePayments.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("recl_ph_payment")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePayments.map((p) => (
+                      <SelectItem key={p.paymentId} value={p.paymentId}>
+                        {p.paymentId} · {formatFcfa(p.amount)} ·{" "}
+                        {p.status === "failed" ? t("recl_payment_status_failed") : t("recl_payment_status_pending")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!paymentsLoading && availablePayments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("recl_no_claimable")}</p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="claim-amount">{t("recl_label_amount")}</Label>
                 <Input
                   id="claim-amount"
-                  type="number"
-                  placeholder={t("recl_ph_amount")}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("recl_label_method")}</Label>
-                <Select value={paymentMethod} onValueChange={(value) => setPaymentMethod(value as ClaimPaymentMethod)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("recl_ph_method")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="orange_money">{t("sp_method_om")}</SelectItem>
-                    <SelectItem value="mtn_momo">{t("sp_method_mtn")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="debited-phone">{t("recl_label_phone")}</Label>
-                <Input
-                  id="debited-phone"
-                  type="tel"
-                  placeholder={t("recl_ph_phone")}
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="transaction-ref">{t("recl_label_ref")}</Label>
-                <Input
-                  id="transaction-ref"
-                  placeholder={t("recl_ph_ref")}
-                  value={transactionReference}
-                  onChange={(e) => setTransactionReference(e.target.value)}
+                  type="text"
+                  readOnly
+                  placeholder="—"
+                  value={selectedPayment ? formatFcfa(selectedPayment.amount) : ""}
                 />
               </div>
             </div>
@@ -309,12 +339,13 @@ export default function ReclamationsPage() {
                 </div>
                 <p className="mt-2 text-sm">
                   {t("recl_amount_lbl")}{" "}
-                  <span className="font-semibold">{formatFcfa(claim.amount)}</span> -{" "}
-                  {claim.paymentMethod === "orange_money" ? t("sp_method_om") : t("sp_method_mtn")}
+                  <span className="font-semibold">{formatFcfa(claim.amount)}</span>
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {t("prof_pdf_ref")} {claim.transactionReference}
-                </p>
+                {claim.paymentId ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t("recl_label_payment")}: {claim.paymentId}
+                  </p>
+                ) : null}
                 <p className="mt-2 text-sm text-muted-foreground">{claim.description}</p>
                 {claim.screenshotDataUrl ? (
                   <ClaimProofActions

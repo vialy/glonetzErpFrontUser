@@ -20,7 +20,7 @@ export function MobileBackButton({ fallbackHref = "/dashboard" }: { fallbackHref
             router.back()
             return
           }
-          startLoading()
+          startLoading(fallbackHref)
           router.push(fallbackHref)
         }}
       >

@@ -49,8 +49,8 @@ function claimStatusKey(status: ClaimStatus): TranslationKey {
   }
 }
 
-function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, "").replace(/^\+/, "")
+function normalizePhone(phone: string | null | undefined): string {
+  return (phone ?? "").replace(/\s+/g, "").replace(/^\+/, "")
 }
 
 function pageItems(t: GlobalSearchTranslate): GlobalSearchItem[] {
@@ -118,7 +118,10 @@ function claimItems(
 function filterStudentClaims(claims: ClaimRecord[], phone: string | null | undefined): ClaimRecord[] {
   if (!phone?.trim()) return claims
   const key = normalizePhone(phone)
-  return claims.filter((c) => normalizePhone(c.phoneNumber) === key)
+  // Les réclamations v4 ne portent plus de numéro : on les conserve (déjà
+  // limitées à l'apprenant connecté côté back-end) et on ne filtre que les
+  // anciennes réclamations qui exposaient un numéro différent.
+  return claims.filter((c) => !c.phoneNumber || normalizePhone(c.phoneNumber) === key)
 }
 
 export function buildGlobalSearchIndex(

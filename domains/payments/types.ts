@@ -31,6 +31,10 @@ export interface StudentTuitionSummary {
   currencyCode?: string
   classId?: string
   userId?: string
+  catalogTuition?: number
+  scholarshipDiscount?: number
+  isScholarshipHolder?: boolean
+  scholarshipIsFull?: boolean
 }
 
 export interface CreatePaymentInput {

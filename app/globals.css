@@ -145,6 +145,19 @@
   animation: slide-in-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+@keyframes welcome-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.animate-welcome-progress {
+  animation: welcome-progress 2.4s linear forwards;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -19,5 +19,8 @@ export const certificatesService = {
   getForStudent(): Promise<TrainingCertificate[]> {
     return provider.getForStudent()
   },
+  getById(id: string): Promise<TrainingCertificate | null> {
+    return provider.getById(id)
+  },
 }
 

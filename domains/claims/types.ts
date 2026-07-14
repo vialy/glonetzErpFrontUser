@@ -5,24 +5,27 @@ export interface ClaimRecord {
   id: string
   createdAt: string
   amount: number
-  paymentMethod: ClaimPaymentMethod
-  phoneNumber: string
-  transactionReference: string
+  /** Identifiant convivial (PAY-XXXX) du paiement contesté. */
+  paymentId?: string
   description: string
+  /** Date du paiement signalé (ISO). */
+  paymentDate?: string
   screenshotName?: string
   screenshotDataUrl?: string
   status: ClaimStatus
+  // Champs hérités (plus saisis) conservés optionnels pour l'affichage legacy.
+  paymentMethod?: ClaimPaymentMethod
+  phoneNumber?: string
+  transactionReference?: string
 }
 
 export interface CreateClaimInput {
-  amount: number
-  paymentMethod: ClaimPaymentMethod
-  phoneNumber: string
-  transactionReference: string
-  description: string
-  /** Date du paiement signale (ISO). Requis par le back-end. */
-  paymentDate?: string
-  screenshotFile?: File | null
+  /** Paiement contesté (pending/failed) sélectionné par l'apprenant. */
+  paymentId: string
+  /** Date du paiement signalé (ISO). Requis par le back-end. */
+  paymentDate: string
+  description?: string
+  screenshotFile: File
 }
 
 export interface ClaimsProvider {
@@ -30,4 +33,3 @@ export interface ClaimsProvider {
   create(input: CreateClaimInput): Promise<ClaimRecord>
   updateStatus(id: string, status: ClaimStatus): Promise<ClaimRecord>
 }
-
