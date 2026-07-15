@@ -24,6 +24,7 @@ const SESSION_INVALID_ERROR_CODES: number[] = [
   ERROR_CODES.FORBIDDEN,
   ERROR_CODES.INVALID_TOKEN,
   ERROR_CODES.EXPIRED_TOKEN,
+  ERROR_CODES.ACCOUNT_DISABLED,
 ]
 
 const SESSION_INVALID_MESSAGES = [
@@ -32,6 +33,7 @@ const SESSION_INVALID_MESSAGES = [
   "invalid_token",
   "expired_token",
   "missing_token",
+  "account_disabled",
 ]
 
 let handlingUnauthorized = false
