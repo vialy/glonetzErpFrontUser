@@ -211,7 +211,7 @@ export function StudentDashboard() {
             ? `${100 - paymentProgress}% ${t("stu_kpi_tuition_note")}`
             : t("stu_kpi_tuition_note"),
         series: remainingSeries,
-        tone: "rose" as const,
+        tone: (summary.remainingAmount > 0 ? "rose" : "emerald") as const,
         loading,
       },
       {

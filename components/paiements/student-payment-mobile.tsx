@@ -162,14 +162,30 @@ export function StudentPaymentMobile({
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-black/15 px-3 py-2 backdrop-blur-sm">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-primary-foreground/70">
+          <div
+            className={`rounded-xl px-3 py-2 backdrop-blur-sm ${
+              summary.remainingAmount > 0
+                ? "bg-black/15"
+                : "bg-emerald-500/20 ring-1 ring-emerald-300/25"
+            }`}
+          >
+            <p
+              className={`text-[10px] font-medium uppercase tracking-wide ${
+                summary.remainingAmount > 0 ? "text-primary-foreground/70" : "text-emerald-100/90"
+              }`}
+            >
               {t("sp_card_remain")}
             </p>
             {loading ? (
               <Skeleton className="mt-1 h-6 w-24 bg-white/25" />
             ) : (
-              <p className="mt-0.5 text-lg font-bold tabular-nums text-white">{formatFcfa(summary.remainingAmount)}</p>
+              <p
+                className={`mt-0.5 text-lg font-bold tabular-nums ${
+                  summary.remainingAmount > 0 ? "text-white" : "text-emerald-50"
+                }`}
+              >
+                {formatFcfa(summary.remainingAmount)}
+              </p>
             )}
           </div>
           <div className="rounded-xl bg-emerald-500/20 px-3 py-2 backdrop-blur-sm ring-1 ring-emerald-300/25">

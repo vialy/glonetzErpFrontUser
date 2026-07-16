@@ -239,7 +239,7 @@ export function StudentProfilePage() {
         />
         <StudentStatCard
           icon={<CircleAlert className="size-4" />}
-          tone="rose"
+          tone={summary.remainingAmount > 0 ? "rose" : "emerald"}
           label={t("prof_fin_remain")}
           value={formatFcfa(summary.remainingAmount)}
           loading={financeLoading}

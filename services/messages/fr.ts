@@ -35,8 +35,8 @@ export const messages = {
     pin_too_weak: "Le nouveau PIN n'est pas valide (8 chiffres requis).",
     pin_change_failed: "Echec de la modification du PIN. Verifiez le PIN actuel et reessayez.",
 
-    // Forgot PIN,
-    forgot_pin_link: "PIN oublie ?",
+    // Forgot PIN — contact bureau,
+    pin_forgot_contact_label: "PIN oublie ? Contactez le bureau :",
     forgot_pin_title: "PIN oublie",
     forgot_pin_subtitle: "Entrez votre numero de telephone. Vous recevrez un SMS avec un code temporaire.",
     send_sms: "Envoyer le SMS",

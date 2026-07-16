@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import {
   Lock, Loader2, ShieldAlert, Clock, KeyRound,
-  ShieldCheck, ArrowLeft, MessageSquare, CheckCircle2, Send,
+  ShieldCheck, ArrowLeft, CheckCircle2, Mail,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -19,7 +19,9 @@ import { LanguageSwitcher } from "@/components/language-switcher"
 import { authService } from "@/domains/auth"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 
-type Step = "login" | "change-pin" | "forgot-phone" | "forgot-reset"
+type Step = "login" | "change-pin"
+
+const SUPPORT_EMAIL = "neero@glonetz.com"
 
 export function LoginForm() {
   const router = useRouter()
@@ -49,15 +51,6 @@ export function LoginForm() {
   const [confirmPin, setConfirmPin] = useState("")
   const [pinError, setPinError] = useState("")
 
-  // Forgot PIN fields
-  const [forgotPhone, setForgotPhone] = useState("")
-  const [tempPin, setTempPin] = useState("")
-  const [resetNewPin, setResetNewPin] = useState("")
-  const [resetConfirmPin, setResetConfirmPin] = useState("")
-  const [forgotLoading, setForgotLoading] = useState(false)
-  const [forgotError, setForgotError] = useState("")
-  const [resetSuccess, setResetSuccess] = useState(false)
-
   const isCoolingDown = cooldownRemaining > 0
 
   // Slide transition helper
@@ -75,13 +68,7 @@ export function LoginForm() {
     setNewPin("")
     setConfirmPin("")
     setPinError("")
-    setForgotPhone("")
-    setTempPin("")
-    setResetNewPin("")
-    setResetConfirmPin("")
-    setForgotError("")
     setPhoneError("")
-    setResetSuccess(false)
   }
 
   function returnToLoginStep(options?: { showPinChangedMessage?: boolean }) {
@@ -192,58 +179,7 @@ export function LoginForm() {
     [currentPin, newPin, confirmPin, changePin, t]
   )
 
-  const handleRequestSms = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
-      setForgotError("")
-      if (!validatePhoneE164(forgotPhone)) {
-        setForgotError(t("phone_invalid_format"))
-        return
-      }
-      setForgotLoading(true)
-      try {
-        await authService.requestPinReset(formatPhoneE164(forgotPhone))
-        goToStep("forgot-reset")
-      } catch {
-        setForgotError("Erreur")
-      } finally {
-        setForgotLoading(false)
-      }
-    },
-    [forgotPhone, t]
-  )
-
-  const handleResetPin = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
-      setForgotError("")
-      if (resetNewPin !== resetConfirmPin) {
-        setForgotError(t("pins_dont_match"))
-        return
-      }
-      if (resetNewPin === tempPin) {
-        setForgotError(t("pin_same_as_temp"))
-        return
-      }
-      setForgotLoading(true)
-      try {
-        await authService.resetPinWithCode(formatPhoneE164(forgotPhone), tempPin, resetNewPin)
-        setResetSuccess(true)
-      } catch (err) {
-        const code = err instanceof Error ? err.message : ""
-        if (code === "PIN_SAME_AS_TEMP") setForgotError(t("pin_same_as_temp"))
-        else if (code === "PIN_SAME_AS_CURRENT") setForgotError(t("pin_same_as_current"))
-        else if (code === "PIN_RESET_INVALID_TEMP") setForgotError(t("wrong_pin"))
-        else setForgotError("Erreur")
-      } finally {
-        setForgotLoading(false)
-      }
-    },
-    [forgotPhone, tempPin, resetNewPin, resetConfirmPin, t]
-  )
-
   const phoneInvalid = phone.length > 0 && !validatePhoneE164(phone)
-  const forgotPhoneInvalid = forgotPhone.length > 0 && !validatePhoneE164(forgotPhone)
 
   const cooldownProgress = isCoolingDown ? 1 - cooldownRemaining / authService.cooldownSeconds : 0
   const circumference = 2 * Math.PI * 20
@@ -255,7 +191,6 @@ export function LoginForm() {
     "h-8 w-8 rounded-md border-2 border-input bg-card text-xs font-bold shadow-sm sm:h-9 sm:w-9 sm:text-sm"
 
   const isChangePinStep = step === "change-pin"
-  const isForgotStep = step === "forgot-phone" || step === "forgot-reset"
 
   // Message d'erreur affiché dans l'étape de changement de PIN :
   // vérifications locales (pinError) puis erreurs remontées par le service.
@@ -278,15 +213,13 @@ export function LoginForm() {
       className={`flex h-full min-h-dvh flex-col px-4 sm:px-8 md:px-12 lg:h-dvh lg:min-h-0 lg:justify-start lg:bg-card lg:px-16 ${
         isChangePinStep
           ? "overflow-hidden pb-2 pt-12 sm:pt-14 lg:pt-8"
-          : isForgotStep
-            ? "overflow-hidden pb-3 pt-10 sm:pt-12 lg:pt-10"
-            : "overflow-hidden pt-24 pb-3 sm:pt-28 lg:pt-14"
+          : "overflow-hidden pt-24 pb-3 sm:pt-28 lg:pt-14"
       }`}
     >
       {/* Logo */}
       <div
         className={`flex shrink-0 justify-center ${
-          isChangePinStep || isForgotStep ? "pb-1 lg:pb-2" : "pt-1.5 pb-1"
+          isChangePinStep ? "pb-1 lg:pb-2" : "pt-1.5 pb-1"
         }`}
       >
         <Image
@@ -295,7 +228,7 @@ export function LoginForm() {
           width={220}
           height={80}
           className={
-            isChangePinStep || isForgotStep ? "h-16 w-auto lg:h-14" : "h-24 w-auto sm:h-24 lg:h-16"
+            isChangePinStep ? "h-16 w-auto lg:h-14" : "h-24 w-auto sm:h-24 lg:h-16"
           }
           priority
         />
@@ -409,15 +342,15 @@ export function LoginForm() {
               </div>
             </div>
 
-            {/* Forgot PIN link */}
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => goToStep("forgot-phone")}
-                className="text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+            <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-center">
+              <p className="text-sm text-muted-foreground">{t("pin_forgot_contact_label")}</p>
+              <a
+                href={`mailto:${SUPPORT_EMAIL}`}
+                className="mt-1 inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-primary underline-offset-4 hover:underline"
               >
-                {t("forgot_pin_link")}
-              </button>
+                <Mail className="size-4 shrink-0" />
+                {SUPPORT_EMAIL}
+              </a>
             </div>
 
             {/* Submit */}
@@ -527,180 +460,6 @@ export function LoginForm() {
               )}
             </Button>
           </form>
-        )}
-
-        {/* ===== STEP 3: FORGOT PIN - Enter phone ===== */}
-        {step === "forgot-phone" && (
-          <form
-            onSubmit={handleRequestSms}
-            className={`flex flex-col justify-start gap-5 py-2 ${animClass}`}
-          >
-            {/* Back button */}
-            <button
-              type="button"
-              onClick={goBackToLogin}
-              className="flex items-center gap-1.5 self-start text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft className="size-4" />
-              {t("back_to_login")}
-            </button>
-
-            <div className="flex flex-col items-center rounded-2xl bg-gradient-to-br from-primary to-accent px-5 py-5 text-primary-foreground">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-primary-foreground/20 backdrop-blur-sm">
-                <MessageSquare className="size-6" />
-              </div>
-              <h2 className="mt-3 text-lg font-bold sm:text-xl">{t("forgot_pin_title")}</h2>
-              <p className="mt-1.5 text-center text-sm leading-relaxed text-primary-foreground/80">
-                {t("forgot_pin_subtitle")}
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="forgot-phone" className="text-sm font-medium text-foreground">
-                {t("phone_label")}<span className="text-destructive"> *</span>
-              </Label>
-              <PhoneInputField
-                id="forgot-phone"
-                value={forgotPhone}
-                onChange={setForgotPhone}
-                placeholder={t("phone_placeholder")}
-                searchPlaceholder={t("phone_country_search")}
-                invalid={Boolean(forgotError && forgotPhoneInvalid) || forgotPhoneInvalid}
-                defaultCountry="cm"
-              />
-            </div>
-
-            <Button
-              type="submit" disabled={forgotLoading || !validatePhoneE164(forgotPhone)}
-              className="h-13 w-full bg-primary text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50"
-            >
-              {forgotLoading ? (
-                <span className="flex items-center gap-2"><Loader2 className="size-5 animate-spin" />{t("sending_sms")}</span>
-              ) : (
-                <span className="flex items-center gap-2"><Send className="size-4" />{t("send_sms")}</span>
-              )}
-            </Button>
-          </form>
-        )}
-
-        {/* ===== STEP 4: FORGOT PIN - Enter temp PIN + new PIN ===== */}
-        {step === "forgot-reset" && (
-          <div className={`flex flex-col justify-start gap-4 py-2 ${animClass}`}>
-            {/* Back button */}
-            <button
-              type="button"
-              onClick={goBackToLogin}
-              className="flex items-center gap-1.5 self-start text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft className="size-4" />
-              {t("back_to_login")}
-            </button>
-
-            {/* Success state */}
-            {resetSuccess ? (
-              <div className="flex flex-col items-center gap-5">
-                <div className="flex flex-col items-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 px-5 py-5 text-white">
-                  <div className="flex size-11 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
-                    <CheckCircle2 className="size-6" />
-                  </div>
-                  <h2 className="mt-3 text-lg font-bold sm:text-xl">{t("pin_reset_success").split("!")[0]}!</h2>
-                  <p className="mt-1.5 text-center text-sm leading-relaxed text-white/80">
-                    {t("pin_reset_success").split("!")[1]?.trim()}
-                  </p>
-                </div>
-                <Button
-                  onClick={goBackToLogin}
-                  className="h-12 w-full bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25"
-                >
-                  <span className="flex items-center gap-2"><Lock className="size-4" />{t("login_button")}</span>
-                </Button>
-              </div>
-            ) : (
-              <form onSubmit={handleResetPin} className="flex flex-col gap-4">
-                <div className="flex flex-col items-center rounded-2xl bg-gradient-to-br from-primary to-accent px-5 py-5 text-primary-foreground">
-                  <div className="flex size-11 items-center justify-center rounded-xl bg-primary-foreground/20 backdrop-blur-sm">
-                    <ShieldCheck className="size-6" />
-                  </div>
-                  <h2 className="mt-3 text-lg font-bold sm:text-xl">{t("sms_sent_title")}</h2>
-                  <p className="mt-1.5 text-center text-sm leading-relaxed text-primary-foreground/80">
-                    {t("sms_sent_subtitle")} <span className="font-bold">{formatPhoneE164(forgotPhone)}</span>
-                  </p>
-                </div>
-
-                {forgotError && (
-                  <div className="flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5">
-                    <ShieldAlert className="size-4 shrink-0 text-destructive" />
-                    <p className="text-sm font-medium text-destructive">{forgotError}</p>
-                  </div>
-                )}
-
-                {/* Temp PIN */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">{t("temp_pin_label")}</Label>
-                  <div className="flex justify-center">
-                    <InputOTP maxLength={PIN_LENGTH} value={tempPin} onChange={setTempPin}>
-                      <InputOTPGroup className="flex flex-wrap justify-center gap-1 sm:gap-1.5">
-                        {PIN_SLOT_INDICES.map((i) => (
-                          <InputOTPSlot key={i} index={i} className={pinSlotBase} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                </div>
-
-                <div className="h-px bg-border" />
-
-                {/* New PIN */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">{t("new_pin_reset")}</Label>
-                  <div className="flex justify-center">
-                    <InputOTP maxLength={PIN_LENGTH} value={resetNewPin} onChange={setResetNewPin}>
-                      <InputOTPGroup className="flex flex-wrap justify-center gap-1 sm:gap-1.5">
-                        {PIN_SLOT_INDICES.map((i) => (
-                          <InputOTPSlot key={i} index={i} className={pinSlotBase} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                </div>
-
-                {/* Confirm new PIN */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">{t("confirm_pin_reset")}</Label>
-                  <div className="flex justify-center">
-                    <InputOTP maxLength={PIN_LENGTH} value={resetConfirmPin} onChange={setResetConfirmPin}>
-                      <InputOTPGroup className="flex flex-wrap justify-center gap-1 sm:gap-1.5">
-                        {PIN_SLOT_INDICES.map((i) => (
-                          <InputOTPSlot
-                            key={i} index={i}
-                            className={`${pinSlotBase} ${
-                              isCompletePin(resetConfirmPin) && resetConfirmPin !== resetNewPin
-                                ? "border-destructive bg-destructive/5 text-destructive"
-                                : isCompletePin(resetConfirmPin) && resetConfirmPin === resetNewPin
-                                  ? "border-green-500 bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400"
-                                  : ""
-                            }`}
-                          />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={forgotLoading || !isCompletePin(tempPin) || !isCompletePin(resetNewPin) || !isCompletePin(resetConfirmPin)}
-                  className="h-12 w-full bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50"
-                >
-                  {forgotLoading ? (
-                    <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t("resetting_pin")}</span>
-                  ) : (
-                    <span className="flex items-center gap-2"><ShieldCheck className="size-4" />{t("reset_pin_button")}</span>
-                  )}
-                </Button>
-              </form>
-            )}
-          </div>
         )}
       </div>
 

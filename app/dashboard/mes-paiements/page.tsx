@@ -26,7 +26,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { MobileBackButton } from "@/components/mobile-back-button"
-import { claimsService, type ClaimRecord } from "@/domains/claims"
 import { paymentsService, type StudentPaymentRecord, type StudentTuitionSummary } from "@/domains/payments"
 import { formatFcfaForPdf, sanitizeTextForPdf } from "@/lib/pdf-text"
 import { CACHE_KEYS, getCached, hasCached, setCached } from "@/lib/client-cache"
@@ -52,11 +51,9 @@ interface PaymentLine {
   amount: number
   method: StudentPaymentRecord["paymentMethod"]
   status: PaymentStatus
-  sourceType: "payment" | "claim"
   note?: string
   transactionReference?: string
   phoneNumber?: string
-  description?: string
 }
 
 function StatusBadge({ status, t }: { status: PaymentStatus; t: (k: TranslationKey) => string }) {
@@ -91,34 +88,17 @@ function mapPaymentStatus(status: StudentPaymentRecord["status"]): PaymentStatus
   return "paye"
 }
 
-function buildPaymentLines(payments: StudentPaymentRecord[], claims: ClaimRecord[]): PaymentLine[] {
-  const linesFromPayments: PaymentLine[] = payments.map((payment) => ({
-    id: payment.paymentId,
-    date: payment.paidAt ?? payment.createdAt,
-    amount: payment.amount,
-    method: payment.paymentMethod,
-    status: mapPaymentStatus(payment.status),
-    sourceType: "payment",
-    note: payment.note,
-  }))
-
-  const appliedClaimIds = new Set(payments.map((payment) => payment.sourceClaimId).filter(Boolean))
-
-  const linesFromClaims: PaymentLine[] = claims
-    .filter((claim) => !appliedClaimIds.has(claim.id))
-    .map((claim) => ({
-      id: claim.id,
-      date: claim.createdAt,
-      amount: claim.amount,
-      method: claim.paymentMethod ?? "mtn_momo",
-      status: claim.status === "rejetee" ? "rejetee" : claim.status === "resolue" ? "paye" : "en_cours",
-      sourceType: "claim",
-      transactionReference: claim.transactionReference,
-      phoneNumber: claim.phoneNumber,
-      description: claim.description,
+function buildPaymentLines(payments: StudentPaymentRecord[]): PaymentLine[] {
+  return payments
+    .map((payment) => ({
+      id: payment.paymentId,
+      date: payment.paidAt ?? payment.createdAt,
+      amount: payment.amount,
+      method: payment.paymentMethod,
+      status: mapPaymentStatus(payment.status),
+      note: payment.note,
     }))
-
-  return [...linesFromPayments, ...linesFromClaims].sort((a, b) => (a.date > b.date ? -1 : 1))
+    .sort((a, b) => (a.date > b.date ? -1 : 1))
 }
 
 export default function MesPaiementsPage() {
@@ -144,9 +124,6 @@ export default function MesPaiementsPage() {
   )
   const [payments, setPayments] = useState<StudentPaymentRecord[]>(
     () => getCached<StudentPaymentRecord[]>(CACHE_KEYS.paymentsList) ?? [],
-  )
-  const [claims, setClaims] = useState<ClaimRecord[]>(
-    () => getCached<ClaimRecord[]>(CACHE_KEYS.claimsAll) ?? [],
   )
   const [selectedPayment, setSelectedPayment] = useState<PaymentLine | null>(null)
   const [downloadingReceipt, setDownloadingReceipt] = useState(false)
@@ -176,13 +153,6 @@ export default function MesPaiementsPage() {
     } catch {
       // Historique paiements indisponible.
     }
-    try {
-      const next = await claimsService.getAll()
-      setClaims(next)
-      setCached(CACHE_KEYS.claimsAll, next)
-    } catch {
-      // Reclamations pas encore connectees au backend.
-    }
     setLoading(false)
     setError(!mainOk && !hasCached(CACHE_KEYS.paymentsList))
   }, [])
@@ -203,7 +173,7 @@ export default function MesPaiementsPage() {
     setRetrying(false)
   }, [load])
 
-  const paymentLines = useMemo(() => buildPaymentLines(payments, claims), [payments, claims])
+  const paymentLines = useMemo(() => buildPaymentLines(payments), [payments])
   const inProgressCount = useMemo(() => paymentLines.filter((p) => p.status === "en_cours").length, [paymentLines])
   const rejectedCount = useMemo(() => paymentLines.filter((p) => p.status === "rejetee").length, [paymentLines])
 
@@ -211,7 +181,7 @@ export default function MesPaiementsPage() {
     if (statusFilter === "all") return paymentLines
     if (statusFilter === "manuel") {
       // Versements manuels (guichet) : paiements directs en especes.
-      return paymentLines.filter((p) => p.sourceType === "payment" && p.method === "cash")
+      return paymentLines.filter((p) => p.method === "cash")
     }
     return paymentLines.filter((p) => p.status === statusFilter)
   }, [paymentLines, statusFilter])
@@ -249,8 +219,7 @@ export default function MesPaiementsPage() {
         )
         .catch(() => "")
 
-      const sourceLabel =
-        selectedPayment.sourceType === "payment" ? t("mp_source_direct") : t("mp_source_claim")
+      const sourceLabel = t("mp_source_direct")
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
       const pageWidth = doc.internal.pageSize.getWidth()
       const left = 16
@@ -293,8 +262,8 @@ export default function MesPaiementsPage() {
       if (selectedPayment.transactionReference) row(t("mp_row_ref_pay"), selectedPayment.transactionReference)
       if (selectedPayment.phoneNumber) row(t("mp_row_phone"), selectedPayment.phoneNumber)
 
-      if (selectedPayment.note || selectedPayment.description) {
-        const text = sanitizeTextForPdf(selectedPayment.note ?? selectedPayment.description ?? "")
+      if (selectedPayment.note) {
+        const text = sanitizeTextForPdf(selectedPayment.note)
         doc.setFillColor(248, 250, 252)
         doc.roundedRect(left, y + 6, right - left, 24, 2, 2, "F")
         doc.setTextColor(71, 85, 105)
@@ -353,7 +322,7 @@ export default function MesPaiementsPage() {
         />
         <StudentStatCard
           icon={<CircleAlert className="size-4" />}
-          tone="rose"
+          tone={summary.remainingAmount > 0 ? "rose" : "emerald"}
           label={t("mp_card_remain")}
           value={formatFcfa(summary.remainingAmount)}
           loading={loading}
@@ -420,9 +389,7 @@ export default function MesPaiementsPage() {
                       <StatusBadge status={payment.status} t={t} />
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {payment.sourceType === "payment" ? t("mp_src_direct_short") : t("mp_src_claim_short")}
-                      </Badge>
+                      <Badge variant="outline">{t("mp_src_direct_short")}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="outline" onClick={() => setSelectedPayment(payment)}>
@@ -452,9 +419,7 @@ export default function MesPaiementsPage() {
                 </p>
                 <p className="mt-1 text-sm font-semibold">{formatFcfa(payment.amount)}</p>
                 <div className="mt-2">
-                  <Badge variant="outline">
-                    {payment.sourceType === "payment" ? t("mp_src_direct_short") : t("mp_src_claim_short")}
-                  </Badge>
+                  <Badge variant="outline">{t("mp_src_direct_short")}</Badge>
                 </div>
                 <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => setSelectedPayment(payment)}>
                   {t("mp_view_detail")}
@@ -554,34 +519,15 @@ export default function MesPaiementsPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={selectedPayment.status} t={t} />
-                <Badge variant="outline">
-                  {selectedPayment.sourceType === "payment" ? t("mp_source_direct") : t("mp_source_claim")}
-                </Badge>
+                <Badge variant="outline">{t("mp_source_direct")}</Badge>
               </div>
 
-              {selectedPayment.transactionReference || selectedPayment.phoneNumber || selectedPayment.description || selectedPayment.note ? (
+              {selectedPayment.note ? (
                 <div className="space-y-2 rounded-xl border p-3">
                   <p className="text-xs font-medium text-muted-foreground">{t("mp_extra_info")}</p>
-                  {selectedPayment.transactionReference ? (
-                    <p className="text-sm">
-                      <span className="font-medium">{t("mp_lbl_ref_tx")}</span> {selectedPayment.transactionReference}
-                    </p>
-                  ) : null}
-                  {selectedPayment.phoneNumber ? (
-                    <p className="text-sm">
-                      <span className="font-medium">{t("mp_lbl_pay_phone")}</span> {selectedPayment.phoneNumber}
-                    </p>
-                  ) : null}
-                  {selectedPayment.note ? (
-                    <p className="text-sm">
-                      <span className="font-medium">{t("mp_lbl_note")}</span> {selectedPayment.note}
-                    </p>
-                  ) : null}
-                  {selectedPayment.description ? (
-                    <p className="text-sm">
-                      <span className="font-medium">{t("mp_lbl_desc")}</span> {selectedPayment.description}
-                    </p>
-                  ) : null}
+                  <p className="text-sm">
+                    <span className="font-medium">{t("mp_lbl_note")}</span> {selectedPayment.note}
+                  </p>
                 </div>
               ) : null}
 

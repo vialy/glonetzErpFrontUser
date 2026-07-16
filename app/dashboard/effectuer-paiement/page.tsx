@@ -475,7 +475,7 @@ export default function EffectuerPaiementPage() {
           />
           <StudentStatCard
             icon={<CircleAlert className="size-4" />}
-            tone="rose"
+            tone={summary.remainingAmount > 0 ? "rose" : "emerald"}
             label={t("sp_card_remain")}
             value={formatFcfa(summary.remainingAmount)}
             loading={loading}

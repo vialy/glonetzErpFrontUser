@@ -127,7 +127,13 @@ function TimelineRow({
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{labels.remaining}</p>
-            <p className="font-semibold tabular-nums text-rose-700">{formatFcfa(remaining)}</p>
+            <p
+              className={`font-semibold tabular-nums ${
+                remaining <= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700"
+              }`}
+            >
+              {formatFcfa(remaining <= 0 ? 0 : remaining)}
+            </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{labels.payments}</p>
