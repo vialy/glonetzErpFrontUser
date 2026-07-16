@@ -52,9 +52,11 @@ export function getDashboardNavSections(): NavSectionDef[] {
 export function SidebarNav({
   className,
   onLogout,
+  onNavigate,
 }: {
   className?: string
   onLogout?: () => void
+  onNavigate?: () => void
   role?: unknown
 }) {
   const { t } = useLocale()
@@ -81,6 +83,7 @@ export function SidebarNav({
                   <li key={item.labelKey}>
                     <button
                       onClick={() => {
+                        onNavigate?.()
                         if (item.isLogout) {
                           onLogout?.()
                           return

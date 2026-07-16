@@ -82,7 +82,11 @@ export default function DashboardLayout({
         <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
           <SheetContent side="left" className="w-72 p-0 bg-sidebar">
             <SheetTitle className="sr-only">{t("nav_menu")}</SheetTitle>
-            <SidebarNav onLogout={logout} role={role} />
+            <SidebarNav
+              onLogout={logout}
+              onNavigate={() => setSidebarOpen(false)}
+              role={role}
+            />
           </SheetContent>
         </Sheet>
 
